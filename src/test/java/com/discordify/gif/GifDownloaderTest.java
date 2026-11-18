@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
@@ -54,6 +55,30 @@ class GifDownloaderTest {
     void rejectsNonGifStatusAndContentType() {
         assertThrows(IOException.class, () -> GifDownloader.validateResponse(200, "text/html"));
         assertThrows(IOException.class, () -> GifDownloader.validateResponse(404, "image/gif"));
+    }
+
+    @Test
+    void rejectsUnsafeUrlsBeforeNetwork() {
+        assertThrows(IOException.class, () -> GifDownloader.validateUrl("http://media.giphy.com/a.gif"));
+        assertThrows(IOException.class, () -> GifDownloader.validateUrl("https://evil.example/a.gif"));
+        assertThrows(IOException.class, () -> GifDownloader.validateUrl("https://127.0.0.1/a.gif"));
+        assertThrows(IOException.class, () -> GifDownloader.validateUrl("not a url"));
+    }
+
+    @Test
+    void rejectsPrivateAndLoopbackAddresses() throws IOException {
+        assertTrue(!GifDownloader.isPublic(InetAddress.getByName("127.0.0.1")));
+        assertTrue(!GifDownloader.isPublic(InetAddress.getByName("169.254.169.254")));
+        assertTrue(!GifDownloader.isPublic(InetAddress.getByName("10.0.0.1")));
+        assertTrue(!GifDownloader.isPublic(InetAddress.getByName("::1")));
+        assertTrue(!GifDownloader.isPublic(InetAddress.getByName("fd00::1")));
+        assertTrue(GifDownloader.isPublic(InetAddress.getByName("8.8.8.8")));
+    }
+
+    @Test
+    void safeUrlDropsQueryAndFragment() {
+        String raw = "https://media.giphy.com/media/abc/giphy.gif?token=secret#frag";
+        assertEquals("https://media.giphy.com/media/abc/giphy.gif", GifDownloader.safeUrl(raw));
     }
 
     private static byte[] concat(byte[] first, byte[] second) {

@@ -2,13 +2,16 @@ package com.discordify.gif;
 
 import com.mojang.blaze3d.platform.NativeImage;
 import java.awt.image.BufferedImage;
+import java.nio.IntBuffer;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.client.renderer.texture.TextureManager;
 import net.minecraft.resources.Identifier;
+import net.minecraft.util.ARGB;
 import net.minecraft.util.Util;
+import org.lwjgl.system.MemoryUtil;
 
 public final class GifPlayer implements AutoCloseable {
     private static final AtomicInteger NEXT_ID = new AtomicInteger();
@@ -63,14 +66,13 @@ public final class GifPlayer implements AutoCloseable {
     }
 
     private void uploadFrame() {
-        // ponytail: per-pixel loop capped at 512x512 by GifDecoder; bulk upload only if throughput matters.
-        // 1.21.11 renamed setPixelArgb -> setPixel, which converts the ARGB from BufferedImage.getRGB().
+        // ponytail: bulk native write replaces per-pixel JNI calls; still allocates one int[] per frame, reuse a scratch buffer if profiling shows it.
         NativeImage pixels = texture.getPixels();
         BufferedImage image = frames.get(index).image();
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                pixels.setPixel(x, y, image.getRGB(x, y));
-            }
+        int[] argb = image.getRGB(0, 0, width, height, null, 0, width);
+        IntBuffer buffer = MemoryUtil.memIntBuffer(pixels.getPointer(), argb.length);
+        for (int i = 0; i < argb.length; i++) {
+            buffer.put(i, ARGB.toABGR(argb[i]));
         }
         texture.upload();
     }

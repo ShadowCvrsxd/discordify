@@ -33,8 +33,19 @@ public abstract class ChatComponentMixin {
 
     @Shadow private double getScale() { return 0; }
 
+    @Shadow public int getLinesPerPage() { return 0; }
+
+    @Shadow private boolean isChatHidden() { return false; }
+
     private String pendingUrl;
-    private int pendingUrlX;
+    private String pendingPrefix;
+    private int pendingUrlWidth;
+
+    @ModifyVariable(method = "addMessage(Lnet/minecraft/network/chat/Component;)V",
+            at = @At("HEAD"), argsOnly = true)
+    private Component stripGifUrlSimple(Component message) {
+        return stripGifUrl(message);
+    }
 
     @ModifyVariable(method = "addMessage(Lnet/minecraft/network/chat/Component;Lnet/minecraft/network/chat/MessageSignature;Lnet/minecraft/client/GuiMessageTag;)V",
             at = @At("HEAD"), argsOnly = true)
@@ -57,8 +68,10 @@ public abstract class ChatComponentMixin {
             }
         }
         if (start < 0) return message;
+        Font font = Minecraft.getInstance().font;
         pendingUrl = found.get();
-        pendingUrlX = Minecraft.getInstance().font.width(full.substring(0, start));
+        pendingPrefix = full.substring(0, start);
+        pendingUrlWidth = font == null ? 0 : font.width(Component.literal(raw));
         // ponytail: flattening drops per-sibling styles; only the removed URL span matters here.
         String rest = full.substring(0, start) + full.substring(start + raw.length());
         return Component.literal(rest).withStyle(message.getStyle());
@@ -77,20 +90,22 @@ public abstract class ChatComponentMixin {
 
     private void captureNewest() {
         String url = pendingUrl;
-        int urlX = pendingUrlX;
+        String prefix = pendingPrefix;
+        int urlWidth = pendingUrlWidth;
         pendingUrl = null;
+        pendingPrefix = null;
+        pendingUrlWidth = 0;
         if (url == null || this.allMessages.isEmpty()) return;
         GuiMessage newest = this.allMessages.get(0);
-        EmbedManager.INSTANCE.onMessage(url, newest.addedTime(), urlX);
+        EmbedManager.INSTANCE.onMessage(url, newest.addedTime(), prefix == null ? "" : prefix, urlWidth);
     }
 
     @Inject(method = "render(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/gui/Font;IIIZZ)V", at = @At("TAIL"))
     private void onRender(GuiGraphics graphics, Font font, int currentTick, int mouseX, int mouseY,
                           boolean focused, boolean changeCursorOnInsertions, CallbackInfo ci) {
-        double scale = this.getScale();
-        // ponytail: ChatComponent's pose maps local x=0 to screen x=4*scale and chat-local y by *scale.
-        int chatX = (int) Math.round(4.0D * scale);
-        EmbedManager.INSTANCE.render(graphics, this.trimmedMessages, this.getLineHeight(), scale,
-                this.getWidth(), this.chatScrollbarPos, chatX);
+        EmbedManager.INSTANCE.prepare(font, this.trimmedMessages, this.allMessages,
+                this.getLineHeight(), this.getScale(), this.getWidth(), this.chatScrollbarPos,
+                this.getLinesPerPage(), this.isChatHidden());
+        EmbedManager.INSTANCE.draw(graphics);
     }
 }

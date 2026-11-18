@@ -3,7 +3,9 @@ package com.discordify.gif;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.InetAddress;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -15,19 +17,28 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class GifDownloader {
+    private static final Logger LOGGER = LoggerFactory.getLogger("Discordify");
     private static final int MAX_BYTES = 8 * 1024 * 1024;
     private static final long HOST_COOLDOWN_MS = 2000L;
     private static final char[] HEX = "0123456789abcdef".toCharArray();
+    private static final Set<String> ALLOWED_HOSTS = Set.of(
+            "media.giphy.com", "i.giphy.com", "media.tenor.com", "tenor.com", "giphy.com");
 
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+    private final HttpClient http = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .followRedirects(HttpClient.Redirect.NEVER)
+            .build();
     private final ExecutorService pool = Executors.newFixedThreadPool(2, daemonFactory());
     // ponytail: in-memory cooldown resets on reload; sufficient for a client mod
     private final Map<String, Long> lastFetchMs = new ConcurrentHashMap<>();
@@ -36,7 +47,81 @@ public final class GifDownloader {
         return CompletableFuture.supplyAsync(() -> fetch(url, gameDir), pool);
     }
 
+    public static String safeUrl(String url) {
+        return url == null ? "" : normalizeUrl(url);
+    }
+
+    static String validateUrl(String url) throws IOException {
+        URI uri;
+        try {
+            uri = URI.create(url);
+        } catch (IllegalArgumentException e) {
+            throw reject(url, "malformed URL");
+        }
+        if (!"https".equalsIgnoreCase(uri.getScheme())) {
+            throw reject(url, "https required");
+        }
+        String host = uri.getHost();
+        if (host == null || host.isEmpty()) {
+            throw reject(url, "missing host");
+        }
+        host = host.toLowerCase(Locale.ROOT);
+        if (!ALLOWED_HOSTS.contains(host)) {
+            throw reject(url, "host not allowlisted");
+        }
+        if (uri.getPort() != -1 && uri.getPort() != 443) {
+            throw reject(url, "port not allowed");
+        }
+        InetAddress[] addresses;
+        try {
+            addresses = InetAddress.getAllByName(host);
+        } catch (UnknownHostException e) {
+            throw reject(url, "DNS resolution failed");
+        }
+        if (addresses.length == 0) {
+            throw reject(url, "no addresses");
+        }
+        for (InetAddress address : addresses) {
+            if (!isPublic(address)) {
+                throw reject(url, "resolved address is not public");
+            }
+        }
+        return host;
+    }
+
+    static boolean isPublic(InetAddress address) {
+        byte[] bytes = address.getAddress();
+        if (bytes.length == 16) {
+            boolean mapped = true;
+            for (int i = 0; i < 10; i++) {
+                if (bytes[i] != 0) {
+                    mapped = false;
+                    break;
+                }
+            }
+            if (mapped && bytes[10] == 0 && bytes[11] == 0) {
+                byte[] ipv4 = new byte[4];
+                System.arraycopy(bytes, 12, ipv4, 0, 4);
+                try {
+                    return isPublic(InetAddress.getByAddress(ipv4));
+                } catch (UnknownHostException e) {
+                    return false;
+                }
+            }
+            if ((bytes[0] & 0xFE) == 0xFC) return false;
+        }
+        return !address.isAnyLocalAddress() && !address.isLoopbackAddress()
+                && !address.isLinkLocalAddress() && !address.isSiteLocalAddress()
+                && !address.isMulticastAddress();
+    }
+
+    private static IOException reject(String url, String reason) {
+        LOGGER.debug("Discordify: rejected GIF URL {} ({})", safeUrl(url), reason);
+        return new IOException("Rejected GIF URL: " + reason);
+    }
+
     private byte[] fetch(String url, Path gameDir) {
+        validateUrl(url);
         Path cache = cachePath(gameDir, url);
         byte[] cached = readCache(cache);
         if (cached != null) return cached;
