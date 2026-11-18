@@ -42,11 +42,11 @@ public abstract class ChatComponentMixin {
     }
 
     @Inject(method = "render(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/gui/Font;IIIZZ)V", at = @At("TAIL"))
-    private void onRender(GuiGraphics graphics, Font font, int currentTick, int mouseX, int mouseY,
+    private void onRender(GuiGraphics graphics, Font font, int currentTick, int x, int y,
                           boolean focused, boolean changeCursorOnInsertions, CallbackInfo ci) {
         Minecraft client = Minecraft.getInstance();
         EmbedManager.INSTANCE.render(graphics, font, currentTick, focused, changeCursorOnInsertions,
                 this.trimmedMessages, this.getLineHeight(), client.getWindow().getGuiScaledWidth(),
-                this.chatScrollbarPos, mouseX);
+                this.chatScrollbarPos, x);
     }
 }
