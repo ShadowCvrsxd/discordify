@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "discordify",
+  "version": "1.21.11",
+  "name": "Discordify",
+  "description": "Displays GIF links inline in Minecraft chat.",
+  "authors": ["ShadowCvrsxd"],
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.discordify.DiscordifyMod"]
+  },
+  "mixins": [
+    {
+      "config": "discordify.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "minecraft": "~1.21.11",
+    "fabricloader": ">=0.18.1",
+    "fabric-api": "*"
+  }
+}

@@ -1,0 +1,52 @@
+plugins {
+    id "fabric-loom" version "1.14-SNAPSHOT"
+    id "java"
+}
+
+group = "com.discordify"
+version = "1.21.11"
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url "https://maven.fabricmc.net/" }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:1.21.11"
+    mappings loom.officialMojangMappings()
+
+    modImplementation "net.fabricmc:fabric-loader:0.18.1"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:0.141.6+1.21.11"
+
+    testImplementation "org.junit.jupiter:junit-jupiter:5.11.4"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher:1.11.4"
+}
+
+loom {
+    runs {
+        client {
+            property 'minecraft.window.width', '854'
+            property 'minecraft.window.height', '480'
+        }
+    }
+}
+
+tasks.withType(Test) {
+    useJUnitPlatform()
+}
+
+tasks.named("jar") {
+    manifest {
+        attributes(
+            "Fabric-Mod-ID": "discordify",
+            "Fabric-Mod-Version": version,
+            "Main-Class": "com.discordify.DiscordifyMod"
+        )
+    }
+}
