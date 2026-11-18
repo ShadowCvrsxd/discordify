@@ -99,7 +99,7 @@ public final class GifDownloader {
                     break;
                 }
             }
-            if (mapped && bytes[10] == 0 && bytes[11] == 0) {
+            if (mapped && bytes[10] == 0xFF && bytes[11] == 0xFF) {
                 byte[] ipv4 = new byte[4];
                 System.arraycopy(bytes, 12, ipv4, 0, 4);
                 try {
