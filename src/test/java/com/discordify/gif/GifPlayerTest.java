@@ -27,6 +27,6 @@ class GifPlayerTest {
     void catchesUpAcrossMultipleElapsedFrames() {
         assertEquals(0, GifPlayer.nextFrameIndex(0, 1_350L, 1_000L, 100, 3));
         assertEquals(1, GifPlayer.nextFrameIndex(0, 1_550L, 1_000L, 100, 2));
-        assertEquals(0L, GifPlayer.frameSteps(1_350L, 1_000L, 100));
+        assertEquals(3L, GifPlayer.frameSteps(1_350L, 1_000L, 100));
     }
 }
