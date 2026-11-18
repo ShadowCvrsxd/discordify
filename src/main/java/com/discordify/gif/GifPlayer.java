@@ -40,17 +40,26 @@ public final class GifPlayer implements AutoCloseable {
 
     public void advance(long now) {
         if (closed) return;
-        int next = nextFrameIndex(index, now, frameStart, frames.get(index).delayMs(), frames.size());
+        int delayMs = frames.get(index).delayMs();
+        long steps = frameSteps(now, frameStart, delayMs);
+        if (steps < 1) return;
+        int next = nextFrameIndex(index, now, frameStart, delayMs, frames.size());
+        frameStart += steps * delayMs;
         if (next == index) return;
         index = next;
-        frameStart = now;
         uploadFrame();
     }
 
+    static long frameSteps(long now, long frameStart, int delayMs) {
+        if (delayMs <= 0) return 0;
+        return Math.max(0L, (now - frameStart) / delayMs);
+    }
+
     static int nextFrameIndex(int current, long now, long frameStart, int delayMs, int frameCount) {
-        if (frameCount <= 0) return 0;
-        if (now < frameStart + delayMs) return current;
-        return (current + 1) % frameCount;
+        if (frameCount <= 0) return current;
+        long steps = frameSteps(now, frameStart, delayMs);
+        if (steps < 1) return current;
+        return (current + (int) (steps % frameCount)) % frameCount;
     }
 
     private void uploadFrame() {

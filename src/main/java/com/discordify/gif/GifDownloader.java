@@ -41,11 +41,13 @@ public final class GifDownloader {
         byte[] cached = readCache(cache);
         if (cached != null) return cached;
 
-        String host = hostOf(normalizeUrl(url));
+        String key = normalizeUrl(url);
         long now = System.currentTimeMillis();
-        Long previous = lastFetchMs.put(host, now);
+        Long previous = lastFetchMs.get(key);
+        // ponytail: cooldown keyed by URL and stamped only after success — a failed fetch never blocks a
+        // retry, and two GIFs from one host do not block each other. No per-key locking; client traffic is light.
         if (previous != null && now - previous < HOST_COOLDOWN_MS) {
-            throw new CompletionException(new IOException("Host " + host + " cooldown: retry in 2s"));
+            throw new CompletionException(new IOException("URL cooldown: retry in 2s"));
         }
 
         try {
@@ -55,11 +57,12 @@ public final class GifDownloader {
                     .build();
             HttpResponse<InputStream> response =
                     http.send(request, HttpResponse.BodyHandlers.ofInputStream());
-            validateResponse(response.statusCode(),
-                    response.headers().firstValue("Content-Type").orElse(null));
             try (InputStream in = response.body()) {
+                validateResponse(response.statusCode(),
+                        response.headers().firstValue("Content-Type").orElse(null));
                 byte[] bytes = readBounded(in);
                 writeCache(cache, bytes);
+                lastFetchMs.put(key, System.currentTimeMillis());
                 return bytes;
             }
         } catch (InterruptedException e) {
@@ -144,15 +147,6 @@ public final class GifDownloader {
             Files.write(path, bytes);
         } catch (IOException e) {
             // ponytail: caching is best-effort, fail open on I/O errors
-        }
-    }
-
-    private static String hostOf(String url) {
-        try {
-            String host = URI.create(url).getHost();
-            return (host == null ? url : host).toLowerCase(Locale.ROOT);
-        } catch (IllegalArgumentException e) {
-            return url;
         }
     }
 

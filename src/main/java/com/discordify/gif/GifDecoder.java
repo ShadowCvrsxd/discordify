@@ -55,14 +55,22 @@ public final class GifDecoder {
             BufferedImage canvas = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
             List<Frame> frames = new ArrayList<>(count);
             for (int i = 0; i < count; i++) {
-                BufferedImage previous = copy(canvas);
-                BufferedImage partial = reader.read(i);
                 IIOMetadataNode imageRoot = imageTree(reader, i);
                 IIOMetadataNode descriptor = child(imageRoot, "ImageDescriptor");
                 int x = intAttr(descriptor, "imageLeftPosition", 0);
                 int y = intAttr(descriptor, "imageTopPosition", 0);
-                int w = intAttr(descriptor, "imageWidth", partial.getWidth());
-                int h = intAttr(descriptor, "imageHeight", partial.getHeight());
+                int w = intAttr(descriptor, "imageWidth", 0);
+                int h = intAttr(descriptor, "imageHeight", 0);
+                if (w > MAX_DIMENSION || h > MAX_DIMENSION) {
+                    throw new IOException("GIF frame exceeds 512x512 cap");
+                }
+                BufferedImage previous = copy(canvas);
+                BufferedImage partial = reader.read(i);
+                if (partial.getWidth() > MAX_DIMENSION || partial.getHeight() > MAX_DIMENSION) {
+                    throw new IOException("GIF frame exceeds 512x512 cap");
+                }
+                if (w <= 0) w = partial.getWidth();
+                if (h <= 0) h = partial.getHeight();
                 Graphics2D g = canvas.createGraphics();
                 try {
                     g.setComposite(AlphaComposite.SrcOver);
@@ -119,7 +127,7 @@ public final class GifDecoder {
     private static Color backgroundColor(IIOMetadataNode streamRoot) {
         IIOMetadataNode table = child(streamRoot, "GlobalColorTable");
         if (table == null) return new Color(0, 0, 0, 0);
-        int index = intAttr(table, "backgroundColorIndex", 0);
+        int index = intAttr(child(streamRoot, "LogicalScreenDescriptor"), "backgroundColorIndex", 0);
         NodeList entries = table.getElementsByTagName("ColorTableEntry");
         for (int i = 0; i < entries.getLength(); i++) {
             Node entry = entries.item(i);

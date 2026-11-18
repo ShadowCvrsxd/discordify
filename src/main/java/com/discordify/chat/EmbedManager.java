@@ -110,7 +110,7 @@ public final class EmbedManager {
             for (int lineIndex = 0; lineIndex < visibleLines.size(); lineIndex++) {
                 if (visibleLines.get(lineIndex).addedTime() != addedTime) continue;
                 GifPlayer player = entry.getValue();
-                int y = lineBottom - lineIndex * lineHeight - scrolledLines;
+                int y = lineBottom - (lineIndex - scrolledLines) * lineHeight;
                 player.advance(Util.getMillis());
                 int w = Math.min(player.getFrameWidth(), chatWidth);
                 int h = w * player.getFrameHeight() / player.getFrameWidth();
