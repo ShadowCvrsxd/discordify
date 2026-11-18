@@ -121,7 +121,11 @@ public final class GifDownloader {
     }
 
     private byte[] fetch(String url, Path gameDir) {
-        validateUrl(url);
+        try {
+            validateUrl(url);
+        } catch (IOException e) {
+            throw new CompletionException(e);
+        }
         Path cache = cachePath(gameDir, url);
         byte[] cached = readCache(cache);
         if (cached != null) return cached;
