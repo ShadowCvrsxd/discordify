@@ -66,13 +66,14 @@ public final class GifPlayer implements AutoCloseable {
     }
 
     private void uploadFrame() {
-        // ponytail: bulk native write replaces per-pixel JNI calls; still allocates one int[] per frame, reuse a scratch buffer if profiling shows it.
+        // ponytail: write the native buffer directly; replaces width*height JNI setPixel calls with one bulk region.
         NativeImage pixels = texture.getPixels();
         BufferedImage image = frames.get(index).image();
-        int[] argb = image.getRGB(0, 0, width, height, null, 0, width);
-        IntBuffer buffer = MemoryUtil.memIntBuffer(pixels.getPointer(), argb.length);
-        for (int i = 0; i < argb.length; i++) {
-            buffer.put(i, ARGB.toABGR(argb[i]));
+        IntBuffer buffer = MemoryUtil.memIntBuffer(pixels.getPointer(), width * height);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                buffer.put(y * width + x, ARGB.toABGR(image.getRGB(x, y)));
+            }
         }
         texture.upload();
     }
