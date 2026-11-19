@@ -50,13 +50,14 @@ public abstract class ChatComponentMixin {
     @ModifyVariable(method = "addMessage(Lnet/minecraft/network/chat/Component;Lnet/minecraft/network/chat/MessageSignature;Lnet/minecraft/client/GuiMessageTag;)V",
             at = @At("HEAD"), argsOnly = true)
     private Component stripResources(Component message) {
-        // ponytail: addMessage(Component) delegates to the signed overload, so this runs twice
-        // for the same message. Keep the first pass's full match list intact.
-        if (pendingMatches != null) return message;
         List<ResourceMatch> matches = ResourceDetector.findResources(message);
         if (matches.isEmpty()) return message;
         String full = message.getString();
         List<int[]> ranges = ResourceDetector.stripRanges(matches, full);
+        // ponytail: addMessage(Component) delegates to the signed overload, so this runs twice.
+        // Setting pending state only after a real media URL was stripped keeps pass one's GIF+PAGE
+        // list intact when pass two sees only the trusted PAGE URL (kept in chat by design).
+        if (ranges.isEmpty()) return message;
         int firstStart = full.indexOf(matches.get(0).originalUrl());
         String firstToken = matches.get(0).originalUrl();
 
@@ -69,7 +70,6 @@ public abstract class ChatComponentMixin {
         pendingPrefix = full.substring(0, firstStart);
         pendingUrlWidth = font == null ? 0 : font.width(Component.literal(firstToken));
 
-        if (ranges.isEmpty()) return message;
         ranges.sort(Comparator.comparingInt(range -> range[0]));
         StringBuilder kept = new StringBuilder(full.length());
         int cursor = 0;
@@ -115,9 +115,10 @@ public abstract class ChatComponentMixin {
                                            CallbackInfo ci) {
         int shiftedSlot = slot + EmbedManager.INSTANCE.shiftRowsForSlot(slot);
         int y2 = chatBottom - shiftedSlot * entryHeight;
+        int y1 = y2 - entryHeight;
         int reserve = EmbedManager.INSTANCE.backgroundSpanRows(slot);
-        if (reserve > 0) y2 += (reserve - 1) * entryHeight;
-        access.fill(-4, y2 - entryHeight, width + 8, y2, ARGB.black(textBackgroundOpacity * opacity));
+        if (reserve > 0) y2 += reserve * entryHeight;
+        access.fill(-4, y1, width + 8, y2, ARGB.black(textBackgroundOpacity * opacity));
         ci.cancel();
     }
 

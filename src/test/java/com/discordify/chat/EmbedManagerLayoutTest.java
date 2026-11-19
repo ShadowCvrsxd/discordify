@@ -51,6 +51,28 @@ class EmbedManagerLayoutTest {
     }
 
     @Test
+    void slotMathDrivesBlitAndBackgroundStripTogether() {
+        int lineHeight = 9;
+        int chatBottomLocal = 400;
+        int[] shift = EmbedManager.buildCumulativeShift(6, Map.of(1, 3));
+        int slot = 1;
+        int reserve = EmbedManager.backgroundSpan(shift, slot);
+        assertEquals(3, reserve);
+
+        int gifTop = EmbedManager.embedTopY(slot, shift[slot], 0, lineHeight, chatBottomLocal);
+        assertEquals(chatBottomLocal - 4 * lineHeight, gifTop);
+        int gifBottom = gifTop + reserve * lineHeight;
+        assertEquals(chatBottomLocal - slot * lineHeight, gifBottom);
+
+        int stripTop = gifTop - lineHeight;
+        assertEquals(chatBottomLocal - 5 * lineHeight, stripTop);
+        assertEquals(4, (gifBottom - stripTop) / lineHeight);
+
+        int secondGifTop = EmbedManager.embedTopY(slot, shift[slot], reserve, lineHeight, chatBottomLocal);
+        assertEquals(chatBottomLocal - slot * lineHeight, secondGifTop);
+    }
+
+    @Test
     void opacityUsesCapturedVanillaValueNotTicks() {
         assertEquals(1.0F, EmbedManager.lineOpacity(1.0F));
         assertEquals(0.5F, EmbedManager.lineOpacity(0.5F));

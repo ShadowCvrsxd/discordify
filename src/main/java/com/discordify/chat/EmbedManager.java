@@ -71,6 +71,7 @@ public final class EmbedManager {
     private List<Draw> pendingDraws = List.of();
     private int[] cumulativeShift = new int[0];
     private int frameTick;
+    private boolean hidden;
     private boolean shuttingDown;
 
     private EmbedManager() {
@@ -143,6 +144,12 @@ public final class EmbedManager {
         return Math.max(1, Math.min(availW, (int) Math.round(frameW * (drawH / (double) frameH))));
     }
 
+    // ponytail: cumulativeShift is a shift, not a new slot; `beforeRows` accounts for earlier
+    // embeds already placed at the same slot. Pure so the slot->coordinate math is testable.
+    static int embedTopY(int slot, int cumulativeShift, int beforeRows, int lineHeight, int chatBottomLocal) {
+        return chatBottomLocal - (slot + cumulativeShift - beforeRows) * lineHeight;
+    }
+
     static int[] buildCumulativeShift(int size, Map<Integer, Integer> reserveBySlot) {
         int[] cumulative = new int[size];
         int running = 0;
@@ -168,6 +175,7 @@ public final class EmbedManager {
                         int currentTick, int lineHeight, double scale, int chatWidth, int chatScrollbarPos,
                         int linesPerPage, boolean hidden) {
         this.frameTick = currentTick;
+        this.hidden = hidden;
         cumulativeShift = new int[0];
         pendingDraws = List.of();
 
@@ -254,8 +262,8 @@ public final class EmbedManager {
         for (List<Pending> pendings : pendingBySlot.values()) {
             int before = 0;
             for (Pending p : pendings) {
-                int anchor = p.slot() + cumulativeShift[p.slot()] - before;
-                int gifTopLocal = p.chatBottomLocal() - anchor * p.lineHeight();
+                int gifTopLocal = embedTopY(p.slot(), cumulativeShift[p.slot()], before,
+                        p.lineHeight(), p.chatBottomLocal());
                 int gifY = (int) Math.round(gifTopLocal * p.scale());
                 int gifH = Math.max(1, (int) Math.round(p.reserve() * p.lineHeight() * p.scale()));
                 int gifX = (int) Math.round((4.0D + p.lineLocalX()) * p.scale());
@@ -269,7 +277,7 @@ public final class EmbedManager {
     }
 
     public void draw(GuiGraphics graphics) {
-        if (pendingDraws.isEmpty()) return;
+        if (hidden || pendingDraws.isEmpty()) return;
         long now = Util.getMillis();
         for (Draw draw : pendingDraws) {
             draw.player().advance(now);
