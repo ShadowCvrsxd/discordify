@@ -60,7 +60,7 @@ public final class PageUnfurl {
         return resolve(oEmbedUrl, matcher.group(1).replace("\\/", "/"));
     }
 
-    static Optional<String> resolve(String base, String reference) {
+    public static Optional<String> resolve(String base, String reference) {
         try {
             return Optional.of(URI.create(base).resolve(reference).toString());
         } catch (IllegalArgumentException e) {
