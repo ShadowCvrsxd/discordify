@@ -30,7 +30,7 @@ class ResourceDownloaderTest {
             .getBytes(StandardCharsets.UTF_8);
 
     @Test
-    void discordSignedParamsSurviveCacheKey() {
+    void discordSignedParamsSurviveCacheKey() throws IOException {
         String query = "ex=6b00616d&is=6aff0fed&"
                 + "hm=2bd4da18ed7a1e73cd26bc29deb4d693361832d6b6dd92c770b09240f5cc5f7a&";
         assertEquals(DISCORD_CDN, ResourceDownloader.normalizeUrl(DISCORD_CDN + "#frag"));
@@ -41,7 +41,7 @@ class ResourceDownloaderTest {
     }
 
     @Test
-    void extensionlessGifUrlKeepsItsQueryForFetch() {
+    void extensionlessGifUrlKeepsItsQueryForFetch() throws IOException {
         String url = "https://cdn.discordapp.com/attachments/1228641110612643844/1490366458872729710/"
                 + "263187a6b0342d81fc96557d1cc053b3?ex=1&is=2&hm=3";
         assertEquals(url, ResourceDownloader.normalizeUrl(url));
@@ -133,7 +133,7 @@ class ResourceDownloaderTest {
     }
 
     @Test
-    void parseUrlRejectsUnsafeShapesWithoutDns() {
+    void parseUrlRejectsUnsafeShapesWithoutDns() throws IOException {
         assertThrows(IOException.class, () -> ResourceDownloader.parseUrl("http://127.0.0.1/"));
         assertThrows(IOException.class, () -> ResourceDownloader.parseUrl("https://user:pw@example.com/a.gif"));
         assertThrows(IOException.class, () -> ResourceDownloader.parseUrl("https://example.com:8080/a.gif"));
