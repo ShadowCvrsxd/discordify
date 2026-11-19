@@ -135,7 +135,7 @@ public abstract class ChatComponentMixin {
     // ponytail: vanilla's FIRST forEachLine pass draws the per-line highlight via this synthetic lambda with the
     // ORIGINAL row slot (the 7th arg, index 6). Shift it like the text pass or highlights lag the shifted rows.
     @ModifyVariable(method = "method_75802", at = @At("HEAD"), argsOnly = true, index = 6)
-    private int shiftHighlightRow(int row) {
+    private static int shiftHighlightRow(int row) {
         return row + EmbedManager.INSTANCE.shiftRowsForSlot(row);
     }
 
