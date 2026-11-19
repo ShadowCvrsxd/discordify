@@ -143,7 +143,7 @@ public abstract class ChatComponentMixin {
     private void onRenderPrepare(GuiGraphics graphics, Font font, int currentTick, int mouseX, int mouseY,
                                  boolean focused, boolean changeCursorOnInsertions, CallbackInfo ci) {
         EmbedManager.INSTANCE.prepare(font, this.trimmedMessages, this.allMessages,
-                this.getLineHeight(), this.getScale(), this.getWidth(), this.chatScrollbarPos,
+                currentTick, this.getLineHeight(), this.getScale(), this.getWidth(), this.chatScrollbarPos,
                 this.getLinesPerPage(), this.isChatHidden());
     }
 

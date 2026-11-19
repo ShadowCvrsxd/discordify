@@ -36,6 +36,8 @@ public final class EmbedManager {
     private static final int MAX_VISIBLE_EMBEDS = 3;
     // ponytail: height budget in chat lines; native size is kept whenever it fits under it.
     private static final int MAX_GIF_HEIGHT_LINES = 10;
+    // ponytail: ~0.3s at 20 ticks/s; vanilla stops calling accept for a fully faded line.
+    static final int STALE_LINE_TICKS = 6;
 
     private record Draw(GifPlayer player, int addedTime, int x, int y, int w, int h) {}
 
@@ -65,8 +67,10 @@ public final class EmbedManager {
     private final Set<Integer> handledMessages = ConcurrentHashMap.newKeySet();
     private final ResourceDownloader downloader = new ResourceDownloader();
     private final Map<Integer, Float> opacityByTime = new HashMap<>();
+    private final Map<Integer, Integer> lastSeenTickByAddedTime = new HashMap<>();
     private List<Draw> pendingDraws = List.of();
     private int[] cumulativeShift = new int[0];
+    private int frameTick;
     private boolean shuttingDown;
 
     private EmbedManager() {
@@ -108,6 +112,10 @@ public final class EmbedManager {
         opacityByTime.put(addedTime, opacity);
     }
 
+    public void markLineDrawn(int addedTime) {
+        lastSeenTickByAddedTime.put(addedTime, frameTick);
+    }
+
     public int shiftRowsForSlot(int slot) {
         return slot >= 0 && slot < cumulativeShift.length ? cumulativeShift[slot] : 0;
     }
@@ -142,9 +150,14 @@ public final class EmbedManager {
         return vanillaOpacity > 1.0E-4F ? vanillaOpacity : 0.0F;
     }
 
+    static boolean isStaleLine(int frameTick, Integer lastSeenTick) {
+        return lastSeenTick != null && frameTick - lastSeenTick > STALE_LINE_TICKS;
+    }
+
     public void prepare(Font font, List<GuiMessage.Line> trimmed, List<GuiMessage> allMessages,
-                        int lineHeight, double scale, int chatWidth, int chatScrollbarPos,
+                        int currentTick, int lineHeight, double scale, int chatWidth, int chatScrollbarPos,
                         int linesPerPage, boolean hidden) {
+        this.frameTick = currentTick;
         cumulativeShift = new int[0];
         pendingDraws = List.of();
 
@@ -161,8 +174,10 @@ public final class EmbedManager {
             if (!liveTimes.contains(embed.addedTime)) {
                 closePlayer(embed);
                 opacityByTime.remove(embed.addedTime);
+                lastSeenTickByAddedTime.remove(embed.addedTime);
                 it.remove();
-            } else if (hidden || !visibleTimes.contains(embed.addedTime)) {
+            } else if (hidden || !visibleTimes.contains(embed.addedTime)
+                    || isStaleLine(frameTick, lastSeenTickByAddedTime.get(embed.addedTime))) {
                 opacityByTime.put(embed.addedTime, 0.0F);
             }
         }
@@ -280,6 +295,7 @@ public final class EmbedManager {
         pendingDraws = List.of();
         cumulativeShift = new int[0];
         opacityByTime.clear();
+        lastSeenTickByAddedTime.clear();
         for (Embed embed : activeEmbeds.values()) closePlayer(embed);
         activeEmbeds.clear();
         reserved.clear();

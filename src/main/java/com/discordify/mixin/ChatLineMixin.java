@@ -13,6 +13,7 @@ public abstract class ChatLineMixin {
     @Inject(method = "accept(Lnet/minecraft/client/GuiMessage$Line;IF)V", at = @At("HEAD"))
     private void captureOpacity(GuiMessage.Line line, int index, float opacity, CallbackInfo ci) {
         EmbedManager.INSTANCE.onLineOpacity(line.addedTime(), opacity);
+        EmbedManager.INSTANCE.markLineDrawn(line.addedTime());
     }
 
     // ponytail: `index` is the row slot from the chat bottom, not pixels; shifting it by whole
