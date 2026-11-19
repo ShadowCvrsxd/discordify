@@ -45,6 +45,7 @@ class ResourceDetectorTest {
         assertImage("https://pbs.twimg.com/media/pic.jpeg", "jpeg");
         assertImage("https://cdn.discordapp.com/attachments/1/2/file.webp", "webp");
         assertImage("https://media.giphy.com/media/abc/giphy.gif", "gif");
+        assertImage("https://media1.tenor.com/m/abc/cat.gif", "gif");
     }
 
     private static void assertImage(String url, String ignored) {

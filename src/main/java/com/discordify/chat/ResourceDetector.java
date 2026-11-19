@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import net.minecraft.network.chat.Component;
@@ -18,10 +17,6 @@ public final class ResourceDetector {
     private static final Pattern TRAILING_PUNCTUATION = Pattern.compile("[.,;:!?)\\]}'\"]+$");
     private static final Pattern TENOR = Pattern.compile("tenor\\.com/view/.*-gif-([A-Za-z0-9]{10,})");
     private static final Pattern GIPHY_TRAILING_ID = Pattern.compile("([A-Za-z0-9]{6,})$");
-    private static final Set<String> TRUSTED_HOSTS = Set.of(
-            "i.imgur.com", "i.redd.it", "preview.redd.it", "pbs.twimg.com",
-            "cdn.discordapp.com", "raw.githubusercontent.com", "images.githubusercontent.com",
-            "media.giphy.com", "i.giphy.com", "tenor.com", "media.tenor.com", "giphy.com");
 
     private ResourceDetector() {
     }
@@ -65,7 +60,7 @@ public final class ResourceDetector {
         }
         host = host.toLowerCase(Locale.ROOT);
         if (host.startsWith("www.")) host = host.substring(4);
-        if (!TRUSTED_HOSTS.contains(host)) return Optional.empty();
+        if (!TrustedHosts.HOSTS.contains(host)) return Optional.empty();
 
         String path = rest.substring(authorityEnd);
         int query = path.indexOf('?');

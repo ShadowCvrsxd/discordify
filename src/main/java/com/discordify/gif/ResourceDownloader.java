@@ -3,6 +3,7 @@ package com.discordify.gif;
 import com.discordify.chat.PageUnfurl;
 import com.discordify.chat.ResourceKind;
 import com.discordify.chat.ResourceMatch;
+import com.discordify.chat.TrustedHosts;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -21,7 +22,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -44,10 +44,6 @@ public final class ResourceDownloader {
     private static final long HOST_COOLDOWN_MS = 2000L;
     private static final char[] HEX = "0123456789abcdef".toCharArray();
     private static final List<String> CACHE_EXTENSIONS = List.of("gif", "png", "jpg", "webp", "avif", "img");
-    private static final Set<String> ALLOWED_HOSTS = Set.of(
-            "i.imgur.com", "i.redd.it", "preview.redd.it", "pbs.twimg.com",
-            "cdn.discordapp.com", "raw.githubusercontent.com", "images.githubusercontent.com",
-            "media.giphy.com", "i.giphy.com", "media.tenor.com", "tenor.com", "giphy.com");
 
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofMillis(REQUEST_TIMEOUT_MS))
@@ -77,7 +73,7 @@ public final class ResourceDownloader {
         if (host == null || host.isEmpty()) throw reject(url, "missing host");
         host = host.toLowerCase(Locale.ROOT);
         if (host.startsWith("www.")) host = host.substring(4);
-        if (!ALLOWED_HOSTS.contains(host)) throw reject(url, "host not allowlisted");
+        if (!TrustedHosts.HOSTS.contains(host)) throw reject(url, "host not allowlisted");
         if (uri.getPort() != -1 && uri.getPort() != 443) throw reject(url, "port not allowed");
         InetAddress[] addresses;
         try {
