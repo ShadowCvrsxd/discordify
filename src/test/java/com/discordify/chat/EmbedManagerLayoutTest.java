@@ -48,11 +48,11 @@ class EmbedManagerLayoutTest {
     }
 
     @Test
-    void lineIsStaleOnlyAfterBeingUndrawnForSeveralTicks() {
+    void lineIsStaleOnlyAfterBeingUndrawnForTwoTicks() {
         Integer lastSeen = 100;
         assertFalse(EmbedManager.isStaleLine(100, null));
         assertFalse(EmbedManager.isStaleLine(100, lastSeen));
-        assertFalse(EmbedManager.isStaleLine(106, lastSeen));
-        assertTrue(EmbedManager.isStaleLine(107, lastSeen));
+        assertFalse(EmbedManager.isStaleLine(102, lastSeen));
+        assertTrue(EmbedManager.isStaleLine(103, lastSeen));
     }
 }

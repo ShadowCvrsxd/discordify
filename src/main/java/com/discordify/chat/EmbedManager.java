@@ -36,8 +36,8 @@ public final class EmbedManager {
     private static final int MAX_VISIBLE_EMBEDS = 3;
     // ponytail: height budget in chat lines; native size is kept whenever it fits under it.
     private static final int MAX_GIF_HEIGHT_LINES = 10;
-    // ponytail: ~0.3s at 20 ticks/s; vanilla stops calling accept for a fully faded line.
-    static final int STALE_LINE_TICKS = 6;
+    // ponytail: ~0.1s at 20 ticks/s; vanilla stops calling accept for a fully faded line.
+    static final int STALE_LINE_TICKS = 2;
 
     private record Draw(GifPlayer player, int addedTime, int x, int y, int w, int h) {}
 
