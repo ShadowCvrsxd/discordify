@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -58,6 +59,16 @@ public final class ResourceDownloader {
 
     public CompletableFuture<Resolved> download(ResourceMatch match, Path gameDir) {
         return CompletableFuture.supplyAsync(() -> resolve(match, gameDir), pool);
+    }
+
+    public CompletableFuture<List<GifDecoder.Frame>> decodeAsync(byte[] bytes, ResourceKind kind) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return kind == ResourceKind.GIF ? GifDecoder.decode(bytes) : GifDecoder.decodeStatic(bytes);
+            } catch (IOException e) {
+                throw new CompletionException(e);
+            }
+        }, pool);
     }
 
     public static String safeUrl(String url) {

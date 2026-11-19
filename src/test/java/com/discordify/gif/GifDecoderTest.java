@@ -111,7 +111,7 @@ class GifDecoderTest {
         assertEquals(GREEN, frames.get(2).image().getRGB(2, 2));
     }
 
-    private static byte[] threeFrameGif() throws IOException {
+    static byte[] threeFrameGif() throws IOException {
         return writeGif(
                 List.of(solid(4, 4, RED), solid(2, 2, BLUE), solid(4, 4, GREEN)),
                 new int[] {10, 20, 5},

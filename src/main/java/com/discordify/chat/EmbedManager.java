@@ -3,7 +3,6 @@ package com.discordify.chat;
 import com.discordify.gif.GifDecoder;
 import com.discordify.gif.GifPlayer;
 import com.discordify.gif.ResourceDownloader;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -15,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.client.GuiMessage;
@@ -46,17 +46,14 @@ public final class EmbedManager {
 
     private static final class Embed {
         final int addedTime;
-        final ResourceKind kind;
-        final byte[] bytes;
+        final GifPlayer player;
         final String prefix;
         final int urlWidth;
         int prefixWidth = -1;
-        GifPlayer player;
 
-        Embed(int addedTime, ResourceKind kind, byte[] bytes, String prefix, int urlWidth) {
+        Embed(int addedTime, GifPlayer player, String prefix, int urlWidth) {
             this.addedTime = addedTime;
-            this.kind = kind;
-            this.bytes = bytes;
+            this.player = player;
             this.prefix = prefix;
             this.urlWidth = urlWidth;
         }
@@ -86,16 +83,22 @@ public final class EmbedManager {
             if (!reserved.add(id)) continue;
             String url = match.mediaUrl();
             downloader.download(match, gameDir)
-                    .thenAccept(resolved -> Minecraft.getInstance().execute(() -> {
+                    // ponytail: decode runs on the downloader's daemon pool, never on the render thread.
+                    .thenCompose(resolved -> resolved == null || resolved.bytes() == null
+                            ? CompletableFuture.<List<GifDecoder.Frame>>completedFuture(null)
+                            : downloader.decodeAsync(resolved.bytes(), resolved.kind()))
+                    .thenAccept(frames -> Minecraft.getInstance().execute(() -> {
                         if (shuttingDown) {
                             reserved.remove(id);
                             return;
                         }
                         try {
-                            if (resolved != null && resolved.bytes() != null) {
-                                activeEmbeds.put(id, new Embed(addedTime, resolved.kind(),
-                                        resolved.bytes(), prefix, urlWidth));
+                            if (frames != null && !frames.isEmpty()) {
+                                // ponytail: GifPlayer uploads a DynamicTexture, so construct it only here.
+                                activeEmbeds.put(id, new Embed(addedTime, new GifPlayer(frames), prefix, urlWidth));
                             }
+                        } catch (RuntimeException e) {
+                            LOGGER.debug("Discordify: could not create image player: {}", e.toString());
                         } finally {
                             reserved.remove(id);
                         }
@@ -234,8 +237,7 @@ public final class EmbedManager {
             int lineIndex = base + wrappedLines;
             if (lineIndex < chatScrollbarPos || lineIndex >= bottomRowExclusive) continue;
 
-            GifPlayer player = ensurePlayer(embed);
-            if (player == null) continue;
+            GifPlayer player = embed.player;
             if (drawn >= MAX_VISIBLE_EMBEDS) continue;
 
             int availWScreen = Math.max(1, (int) Math.round((localWidth - lineLocalX) * scale * guiScale));
@@ -291,25 +293,8 @@ public final class EmbedManager {
         }
     }
 
-    private GifPlayer ensurePlayer(Embed embed) {
-        if (embed.player != null) return embed.player;
-        try {
-            List<GifDecoder.Frame> frames = embed.kind == ResourceKind.GIF
-                    ? GifDecoder.decode(embed.bytes)
-                    : GifDecoder.decodeStatic(embed.bytes);
-            embed.player = new GifPlayer(frames);
-            return embed.player;
-        } catch (IOException | RuntimeException e) {
-            LOGGER.debug("Discordify: could not create image player: {}", e.toString());
-            return null;
-        }
-    }
-
     private static void closePlayer(Embed embed) {
-        if (embed.player != null) {
-            embed.player.close();
-            embed.player = null;
-        }
+        embed.player.close();
     }
 
     public void closeAll() {
