@@ -142,7 +142,7 @@ public abstract class ChatComponentMixin {
     @Inject(method = "render(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/gui/Font;IIIZZ)V", at = @At("HEAD"))
     private void onRenderPrepare(GuiGraphics graphics, Font font, int currentTick, int mouseX, int mouseY,
                                  boolean focused, boolean changeCursorOnInsertions, CallbackInfo ci) {
-        EmbedManager.INSTANCE.prepare(font, this.trimmedMessages, this.allMessages, currentTick,
+        EmbedManager.INSTANCE.prepare(font, this.trimmedMessages, this.allMessages,
                 this.getLineHeight(), this.getScale(), this.getWidth(), this.chatScrollbarPos,
                 this.getLinesPerPage(), this.isChatHidden());
     }

@@ -2,7 +2,6 @@ package com.discordify.chat;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -39,11 +38,10 @@ class EmbedManagerLayoutTest {
     }
 
     @Test
-    void opacityMatchesVanillaFadeAndReachesZero() {
-        assertEquals(1.0F, EmbedManager.fadeOpacity(1000, 1000));
-        assertEquals(1.0F, EmbedManager.fadeOpacity(1000 + 180, 1000));
-        assertTrue(EmbedManager.fadeOpacity(1000 + 199, 1000) < 0.01F);
-        assertEquals(0.0F, EmbedManager.fadeOpacity(1000 + 200, 1000));
-        assertEquals(0.0F, EmbedManager.fadeOpacity(1000 + 400, 1000));
+    void opacityUsesCapturedVanillaValueNotTicks() {
+        assertEquals(1.0F, EmbedManager.lineOpacity(1.0F));
+        assertEquals(0.5F, EmbedManager.lineOpacity(0.5F));
+        assertEquals(0.0F, EmbedManager.lineOpacity(0.0F));
+        assertEquals(0.0F, EmbedManager.lineOpacity(1.0E-5F));
     }
 }

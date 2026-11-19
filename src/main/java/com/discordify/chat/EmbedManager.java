@@ -67,7 +67,6 @@ public final class EmbedManager {
     private final Map<Integer, Float> opacityByTime = new HashMap<>();
     private List<Draw> pendingDraws = List.of();
     private int[] cumulativeShift = new int[0];
-    private int currentTick = 0;
     private boolean shuttingDown;
 
     private EmbedManager() {
@@ -137,18 +136,15 @@ public final class EmbedManager {
         return cumulative;
     }
 
-    // ponytail: mirrors vanilla AlphaCalculator.timeBased (1 - age/200)*10 clamped, squared. Re-deriving every
-    // frame fixes the stale-map leak when a faded/scrolled-out line stops calling accept().
-    static float fadeOpacity(int currentTick, int addedTime) {
-        double d = (1.0D - (currentTick - addedTime) / 200.0D) * 10.0D;
-        d = Math.max(0.0D, Math.min(1.0D, d));
-        return (float) (d * d);
+    // ponytail: opacity is whatever vanilla captured for this line; never re-derive from ticks.
+    // currentTick is GUI ticks (reset on client restart), addedTime is world ticks — they diverge.
+    static float lineOpacity(float vanillaOpacity) {
+        return vanillaOpacity > 1.0E-4F ? vanillaOpacity : 0.0F;
     }
 
     public void prepare(Font font, List<GuiMessage.Line> trimmed, List<GuiMessage> allMessages,
-                        int currentTick, int lineHeight, double scale, int chatWidth, int chatScrollbarPos,
+                        int lineHeight, double scale, int chatWidth, int chatScrollbarPos,
                         int linesPerPage, boolean hidden) {
-        this.currentTick = currentTick;
         cumulativeShift = new int[0];
         pendingDraws = List.of();
 
@@ -248,9 +244,8 @@ public final class EmbedManager {
         long now = Util.getMillis();
         for (Draw draw : pendingDraws) {
             draw.player().advance(now);
-            float tracked = opacityByTime.getOrDefault(draw.addedTime(), 1.0F);
-            float opacity = Math.min(fadeOpacity(currentTick, draw.addedTime()), tracked);
-            if (opacity <= 1.0E-4F) continue;
+            float opacity = lineOpacity(opacityByTime.getOrDefault(draw.addedTime(), 1.0F));
+            if (opacity <= 0.0F) continue;
             int fw = draw.player().getFrameWidth();
             int fh = draw.player().getFrameHeight();
             graphics.blit(RenderPipelines.GUI_TEXTURED, draw.player().currentTextureId(),
