@@ -1,8 +1,8 @@
 package com.discordify.chat;
 
 import com.discordify.gif.GifDecoder;
-import com.discordify.gif.GifDownloader;
 import com.discordify.gif.GifPlayer;
+import com.discordify.gif.ResourceDownloader;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.client.GuiMessage;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -31,25 +32,28 @@ public final class EmbedManager {
     public static final EmbedManager INSTANCE = new EmbedManager();
 
     private static final Logger LOGGER = LoggerFactory.getLogger("Discordify");
+    private static final AtomicInteger NEXT_ID = new AtomicInteger();
     private static final int MAX_VISIBLE_EMBEDS = 3;
     // ponytail: height budget in chat lines; native size is kept whenever it fits under it.
     private static final int MAX_GIF_HEIGHT_LINES = 10;
 
-    private record Draw(GifPlayer player, int addedTime, int x, int y, int w, int h) {
-    }
+    private record Draw(GifPlayer player, int addedTime, int x, int y, int w, int h) {}
 
     private record Pending(int addedTime, GifPlayer player, int lineLocalX, int availWScreen, int reserve,
-                           int slot, int lineHeight, int chatBottomLocal, double scale, double guiScale) {
-    }
+                           int slot, int lineHeight, int chatBottomLocal, double scale, double guiScale) {}
 
     private static final class Embed {
+        final int addedTime;
+        final ResourceKind kind;
         final byte[] bytes;
         final String prefix;
         final int urlWidth;
         int prefixWidth = -1;
         GifPlayer player;
 
-        Embed(byte[] bytes, String prefix, int urlWidth) {
+        Embed(int addedTime, ResourceKind kind, byte[] bytes, String prefix, int urlWidth) {
+            this.addedTime = addedTime;
+            this.kind = kind;
             this.bytes = bytes;
             this.prefix = prefix;
             this.urlWidth = urlWidth;
@@ -58,38 +62,47 @@ public final class EmbedManager {
 
     private final LinkedHashMap<Integer, Embed> activeEmbeds = new LinkedHashMap<>();
     private final Set<Integer> reserved = ConcurrentHashMap.newKeySet();
-    private final GifDownloader downloader = new GifDownloader();
+    private final Set<Integer> handledMessages = ConcurrentHashMap.newKeySet();
+    private final ResourceDownloader downloader = new ResourceDownloader();
     private final Map<Integer, Float> opacityByTime = new HashMap<>();
     private List<Draw> pendingDraws = List.of();
     private int[] cumulativeShift = new int[0];
+    private int currentTick = 0;
     private boolean shuttingDown;
 
     private EmbedManager() {
     }
 
-    public void onMessage(String url, int addedTime, String prefix, int urlWidth) {
-        if (url == null || shuttingDown) return;
-        if (!reserved.add(addedTime)) return;
-
+    public void onMessage(List<ResourceMatch> matches, int addedTime, String prefix, int urlWidth) {
+        if (matches == null || matches.isEmpty() || shuttingDown) return;
+        if (!handledMessages.add(addedTime)) return;
         Path gameDir = Minecraft.getInstance().gameDirectory.toPath();
-        downloader.download(url, gameDir)
-                .thenAccept(bytes -> Minecraft.getInstance().execute(() -> {
-                    if (shuttingDown) {
-                        reserved.remove(addedTime);
-                        return;
-                    }
-                    try {
-                        activeEmbeds.put(addedTime, new Embed(bytes, prefix, urlWidth));
-                    } finally {
-                        reserved.remove(addedTime);
-                    }
-                }))
-                .exceptionally(throwable -> {
-                    reserved.remove(addedTime);
-                    LOGGER.debug("Discordify: failed to embed GIF {}: {}", GifDownloader.safeUrl(url),
-                            throwable.toString());
-                    return null;
-                });
+        for (ResourceMatch match : matches) {
+            int id = NEXT_ID.getAndIncrement();
+            if (!reserved.add(id)) continue;
+            String url = match.mediaUrl();
+            downloader.download(match, gameDir)
+                    .thenAccept(resolved -> Minecraft.getInstance().execute(() -> {
+                        if (shuttingDown) {
+                            reserved.remove(id);
+                            return;
+                        }
+                        try {
+                            if (resolved != null && resolved.bytes() != null) {
+                                activeEmbeds.put(id, new Embed(addedTime, resolved.kind(),
+                                        resolved.bytes(), prefix, urlWidth));
+                            }
+                        } finally {
+                            reserved.remove(id);
+                        }
+                    }))
+                    .exceptionally(throwable -> {
+                        reserved.remove(id);
+                        LOGGER.debug("Discordify: failed to embed resource {}: {}",
+                                ResourceDownloader.safeUrl(url), throwable.toString());
+                        return null;
+                    });
+        }
     }
 
     public void onLineOpacity(int addedTime, float opacity) {
@@ -124,48 +137,60 @@ public final class EmbedManager {
         return cumulative;
     }
 
+    // ponytail: mirrors vanilla AlphaCalculator.timeBased (1 - age/200)*10 clamped, squared. Re-deriving every
+    // frame fixes the stale-map leak when a faded/scrolled-out line stops calling accept().
+    static float fadeOpacity(int currentTick, int addedTime) {
+        double d = (1.0D - (currentTick - addedTime) / 200.0D) * 10.0D;
+        d = Math.max(0.0D, Math.min(1.0D, d));
+        return (float) (d * d);
+    }
+
     public void prepare(Font font, List<GuiMessage.Line> trimmed, List<GuiMessage> allMessages,
-                        int lineHeight, double scale, int chatWidth, int chatScrollbarPos,
+                        int currentTick, int lineHeight, double scale, int chatWidth, int chatScrollbarPos,
                         int linesPerPage, boolean hidden) {
+        this.currentTick = currentTick;
         cumulativeShift = new int[0];
         pendingDraws = List.of();
 
         Set<Integer> liveTimes = new HashSet<>();
-        for (GuiMessage message : allMessages) {
-            liveTimes.add(message.addedTime());
-        }
+        for (GuiMessage message : allMessages) liveTimes.add(message.addedTime());
+        handledMessages.removeIf(time -> !liveTimes.contains(time));
+        Set<Integer> visibleTimes = new HashSet<>();
+        for (GuiMessage.Line line : trimmed) visibleTimes.add(line.addedTime());
+
         Iterator<Map.Entry<Integer, Embed>> it = activeEmbeds.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<Integer, Embed> entry = it.next();
-            if (!liveTimes.contains(entry.getKey())) {
-                closePlayer(entry.getValue());
-                opacityByTime.remove(entry.getKey());
+            Embed embed = entry.getValue();
+            if (!liveTimes.contains(embed.addedTime)) {
+                closePlayer(embed);
+                opacityByTime.remove(embed.addedTime);
                 it.remove();
+            } else if (hidden || !visibleTimes.contains(embed.addedTime)) {
+                opacityByTime.put(embed.addedTime, 0.0F);
             }
         }
-        // ponytail: hidden/scrolled-out embeds keep their decoded player; only message expiry closes it.
         if (hidden || activeEmbeds.isEmpty() || trimmed.isEmpty()) return;
 
         Map<Integer, Integer> firstLine = new HashMap<>();
         for (int i = 0; i < trimmed.size(); i++) {
             firstLine.putIfAbsent(trimmed.get(i).addedTime(), i);
         }
-        // getScale() is chatScale, not GUI scale; a chat row's real screen height is both multiplied.
         double guiScale = Minecraft.getInstance().getWindow().getGuiScale();
         int lineScreenHeight = Math.max(1, (int) Math.round(lineHeight * scale * guiScale));
         int chatBottomLocal = (int) Math.floor((Minecraft.getInstance().getWindow().getGuiScaledHeight() - 40.0D) / scale);
         int localWidth = Math.max(1, chatWidth);
         int bottomRowExclusive = Math.min(trimmed.size(), chatScrollbarPos + linesPerPage);
 
-        TreeMap<Integer, Embed> newestFirst = new TreeMap<>(Comparator.reverseOrder());
-        newestFirst.putAll(activeEmbeds);
-        Map<Integer, Pending> pendingBySlot = new HashMap<>();
-        int drawn = 0;
+        List<Map.Entry<Integer, Embed>> ordered = new ArrayList<>(activeEmbeds.entrySet());
+        ordered.sort(Comparator.comparingInt((Map.Entry<Integer, Embed> e) -> e.getValue().addedTime).reversed()
+                .thenComparingInt(e -> e.getKey()));
 
-        for (Map.Entry<Integer, Embed> entry : newestFirst.entrySet()) {
-            int addedTime = entry.getKey();
+        Map<Integer, List<Pending>> pendingBySlot = new LinkedHashMap<>();
+        int drawn = 0;
+        for (Map.Entry<Integer, Embed> entry : ordered) {
             Embed embed = entry.getValue();
-            Integer base = firstLine.get(addedTime);
+            Integer base = firstLine.get(embed.addedTime);
             if (base == null) continue;
             if (embed.prefixWidth < 0 && font != null) {
                 embed.prefixWidth = font.width(Component.literal(embed.prefix));
@@ -184,29 +209,36 @@ public final class EmbedManager {
             int reserve = reserveRows(player.getFrameWidth(), player.getFrameHeight(),
                     availWScreen, lineScreenHeight, MAX_GIF_HEIGHT_LINES);
             int slot = lineIndex - chatScrollbarPos;
-            pendingBySlot.putIfAbsent(slot, new Pending(addedTime, player, lineLocalX, availWScreen, reserve,
-                    slot, lineHeight, chatBottomLocal, scale, guiScale));
+            pendingBySlot.computeIfAbsent(slot, key -> new ArrayList<>()).add(
+                    new Pending(embed.addedTime, player, lineLocalX, availWScreen, reserve,
+                            slot, lineHeight, chatBottomLocal, scale, guiScale));
             drawn++;
         }
         if (pendingBySlot.isEmpty()) return;
 
         Map<Integer, Integer> reserveBySlot = new HashMap<>();
-        for (Pending p : pendingBySlot.values()) {
-            reserveBySlot.put(p.slot(), p.reserve());
+        for (Map.Entry<Integer, List<Pending>> entry : pendingBySlot.entrySet()) {
+            int total = 0;
+            for (Pending p : entry.getValue()) total += p.reserve();
+            reserveBySlot.put(entry.getKey(), total);
         }
         // Chat is bottom-anchored: reserving rows after a message lifts its line and every older line.
         cumulativeShift = buildCumulativeShift(trimmed.size(), reserveBySlot);
 
         List<Draw> draws = new ArrayList<>();
-        for (Pending p : pendingBySlot.values()) {
-            int newSlot = p.slot() + cumulativeShift[p.slot()];
-            int gifTopLocal = p.chatBottomLocal() - newSlot * p.lineHeight();
-            int gifY = (int) Math.round(gifTopLocal * p.scale());
-            int gifH = Math.max(1, (int) Math.round(p.reserve() * p.lineHeight() * p.scale()));
-            int gifX = (int) Math.round((4.0D + p.lineLocalX()) * p.scale());
-            int availWGui = Math.max(1, (int) Math.round(p.availWScreen() / p.guiScale()));
-            int gifW = drawWidth(p.player().getFrameWidth(), p.player().getFrameHeight(), gifH, availWGui);
-            draws.add(new Draw(p.player(), p.addedTime(), gifX, gifY, gifW, gifH));
+        for (List<Pending> pendings : pendingBySlot.values()) {
+            int before = 0;
+            for (Pending p : pendings) {
+                int anchor = p.slot() + cumulativeShift[p.slot()] - before;
+                int gifTopLocal = p.chatBottomLocal() - anchor * p.lineHeight();
+                int gifY = (int) Math.round(gifTopLocal * p.scale());
+                int gifH = Math.max(1, (int) Math.round(p.reserve() * p.lineHeight() * p.scale()));
+                int gifX = (int) Math.round((4.0D + p.lineLocalX()) * p.scale());
+                int availWGui = Math.max(1, (int) Math.round(p.availWScreen() / p.guiScale()));
+                int gifW = drawWidth(p.player().getFrameWidth(), p.player().getFrameHeight(), gifH, availWGui);
+                draws.add(new Draw(p.player(), p.addedTime(), gifX, gifY, gifW, gifH));
+                before += p.reserve();
+            }
         }
         pendingDraws = draws;
     }
@@ -216,9 +248,11 @@ public final class EmbedManager {
         long now = Util.getMillis();
         for (Draw draw : pendingDraws) {
             draw.player().advance(now);
+            float tracked = opacityByTime.getOrDefault(draw.addedTime(), 1.0F);
+            float opacity = Math.min(fadeOpacity(currentTick, draw.addedTime()), tracked);
+            if (opacity <= 1.0E-4F) continue;
             int fw = draw.player().getFrameWidth();
             int fh = draw.player().getFrameHeight();
-            float opacity = opacityByTime.getOrDefault(draw.addedTime(), 1.0F);
             graphics.blit(RenderPipelines.GUI_TEXTURED, draw.player().currentTextureId(),
                     draw.x(), draw.y(), 0.0F, 0.0F, draw.w(), draw.h(), fw, fh, fw, fh,
                     ARGB.white(opacity));
@@ -228,10 +262,13 @@ public final class EmbedManager {
     private GifPlayer ensurePlayer(Embed embed) {
         if (embed.player != null) return embed.player;
         try {
-            embed.player = new GifPlayer(GifDecoder.decode(embed.bytes));
+            List<GifDecoder.Frame> frames = embed.kind == ResourceKind.GIF
+                    ? GifDecoder.decode(embed.bytes)
+                    : GifDecoder.decodeStatic(embed.bytes);
+            embed.player = new GifPlayer(frames);
             return embed.player;
         } catch (IOException | RuntimeException e) {
-            LOGGER.debug("Discordify: could not create GIF player: {}", e.toString());
+            LOGGER.debug("Discordify: could not create image player: {}", e.toString());
             return null;
         }
     }
@@ -248,10 +285,9 @@ public final class EmbedManager {
         pendingDraws = List.of();
         cumulativeShift = new int[0];
         opacityByTime.clear();
-        for (Embed embed : activeEmbeds.values()) {
-            closePlayer(embed);
-        }
+        for (Embed embed : activeEmbeds.values()) closePlayer(embed);
         activeEmbeds.clear();
         reserved.clear();
+        handledMessages.clear();
     }
 }

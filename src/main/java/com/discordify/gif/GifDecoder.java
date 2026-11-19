@@ -31,6 +31,30 @@ public final class GifDecoder {
         return readFrames(it, bytes);
     }
 
+    public static List<Frame> decodeStatic(byte[] bytes) throws IOException {
+        if (bytes == null || bytes.length == 0) throw new IOException("Empty image input");
+        try (ImageInputStream in = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(in);
+            if (!readers.hasNext()) throw new IOException("No ImageReader for this image format");
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(in);
+                int width = reader.getWidth(0);
+                int height = reader.getHeight(0);
+                if (width <= 0 || height <= 0 || width > MAX_DIMENSION || height > MAX_DIMENSION) {
+                    throw new IOException("Image exceeds 512x512 cap");
+                }
+                BufferedImage image = reader.read(0);
+                if (image == null || image.getWidth() > MAX_DIMENSION || image.getHeight() > MAX_DIMENSION) {
+                    throw new IOException("Image exceeds 512x512 cap");
+                }
+                return List.of(new Frame(copy(image), 0));
+            } finally {
+                reader.dispose();
+            }
+        }
+    }
+
     static List<Frame> readFrames(Iterator<ImageReader> it, byte[] bytes) throws IOException {
         if (!it.hasNext()) throw new IOException("No GIF ImageReader available");
         if (bytes == null) throw new IOException("Null GIF input");
