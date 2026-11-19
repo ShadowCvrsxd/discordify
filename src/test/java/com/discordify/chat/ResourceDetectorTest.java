@@ -84,6 +84,23 @@ class ResourceDetectorTest {
     }
 
     @Test
+    void mixedGifAndPageBothSurviveStripping() {
+        String gif = "https://media.giphy.com/media/d5gH2bQk9m/giphy.gif";
+        String page = "https://giphy.com/gifs/category/topic";
+        Component message = message("see " + gif + " and " + page);
+        List<ResourceMatch> found = ResourceDetector.findResources(message);
+        assertEquals(2, found.size());
+        assertEquals(1, found.stream().filter(m -> m.kind() == ResourceKind.GIF).count());
+        assertEquals(1, found.stream().filter(m -> m.kind() == ResourceKind.PAGE).count());
+
+        String full = message.getString();
+        List<int[]> ranges = ResourceDetector.stripRanges(found, full);
+        assertEquals(1, ranges.size());
+        assertEquals(gif, full.substring(ranges.get(0)[0], ranges.get(0)[1]));
+        assertTrue(full.contains(page));
+    }
+
+    @Test
     void capsAtFiveLinksPerMessage() {
         StringBuilder text = new StringBuilder();
         for (int i = 0; i < 8; i++) {

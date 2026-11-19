@@ -120,6 +120,16 @@ public final class EmbedManager {
         return slot >= 0 && slot < cumulativeShift.length ? cumulativeShift[slot] : 0;
     }
 
+    // ponytail: the reserve at a slot is the jump in the cumulative shift; no second map needed.
+    public int backgroundSpanRows(int slot) {
+        return backgroundSpan(cumulativeShift, slot);
+    }
+
+    static int backgroundSpan(int[] cumulative, int slot) {
+        if (slot < 0 || slot >= cumulative.length) return 0;
+        return cumulative[slot] - (slot > 0 ? cumulative[slot - 1] : 0);
+    }
+
     static int reserveRows(int frameW, int frameH, int availW, int lineScreenHeight, int maxLines) {
         if (frameW <= 0 || frameH <= 0 || lineScreenHeight <= 0) return 1;
         int availH = maxLines * lineScreenHeight;
@@ -164,6 +174,10 @@ public final class EmbedManager {
         Set<Integer> liveTimes = new HashSet<>();
         for (GuiMessage message : allMessages) liveTimes.add(message.addedTime());
         handledMessages.removeIf(time -> !liveTimes.contains(time));
+        // ponytail: chat lines without an embed also feed these maps every frame; prune by live
+        // messages here so they cannot grow without bound.
+        opacityByTime.keySet().removeIf(time -> !liveTimes.contains(time));
+        lastSeenTickByAddedTime.keySet().removeIf(time -> !liveTimes.contains(time));
         Set<Integer> visibleTimes = new HashSet<>();
         for (GuiMessage.Line line : trimmed) visibleTimes.add(line.addedTime());
 

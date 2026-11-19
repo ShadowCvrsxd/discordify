@@ -41,6 +41,29 @@ public final class ResourceDetector {
                 .findFirst();
     }
 
+    // ponytail: only media URLs are removed from chat text; PAGE URLs stay visible (fail-open).
+    public static List<int[]> stripRanges(List<ResourceMatch> matches, String full) {
+        List<int[]> ranges = new ArrayList<>();
+        for (ResourceMatch match : matches) {
+            if (match.kind() == ResourceKind.PAGE) continue;
+            String raw = match.originalUrl();
+            int start = full.indexOf(raw);
+            if (start < 0) {
+                Matcher matcher = LINK.matcher(full);
+                while (matcher.find()) {
+                    String token = TRAILING_PUNCTUATION.matcher(matcher.group()).replaceAll("");
+                    start = full.indexOf(token);
+                    if (start >= 0) {
+                        raw = token;
+                        break;
+                    }
+                }
+            }
+            if (start >= 0) ranges.add(new int[]{start, start + raw.length()});
+        }
+        return ranges;
+    }
+
     private static Optional<ResourceMatch> inspect(String url) {
         if (!url.startsWith("https://")) return Optional.empty();
         String rest = url.substring("https://".length());

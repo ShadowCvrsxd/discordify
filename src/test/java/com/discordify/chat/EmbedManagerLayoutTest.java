@@ -33,6 +33,17 @@ class EmbedManagerLayoutTest {
     }
 
     @Test
+    void backgroundSpanRowsMatchesReservedSlotOnly() {
+        int[] shift = EmbedManager.buildCumulativeShift(5, Map.of(1, 2, 3, 3));
+        assertEquals(0, EmbedManager.backgroundSpan(shift, 0));
+        assertEquals(2, EmbedManager.backgroundSpan(shift, 1));
+        assertEquals(0, EmbedManager.backgroundSpan(shift, 2));
+        assertEquals(3, EmbedManager.backgroundSpan(shift, 3));
+        assertEquals(0, EmbedManager.backgroundSpan(shift, 5));
+        assertEquals(0, EmbedManager.backgroundSpan(shift, -1));
+    }
+
+    @Test
     void shiftsAccumulateAcrossEmbeds() {
         int[] shift = EmbedManager.buildCumulativeShift(5, Map.of(1, 2, 3, 3));
         assertArrayEquals(new int[] {0, 2, 2, 5, 5}, shift);

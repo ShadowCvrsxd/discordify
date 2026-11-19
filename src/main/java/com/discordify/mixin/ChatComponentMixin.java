@@ -2,13 +2,9 @@ package com.discordify.mixin;
 
 import com.discordify.chat.EmbedManager;
 import com.discordify.chat.ResourceDetector;
-import com.discordify.chat.ResourceKind;
 import com.discordify.chat.ResourceMatch;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import net.minecraft.client.GuiMessage;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -17,6 +13,7 @@ import net.minecraft.client.gui.components.ChatComponent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MessageSignature;
 import net.minecraft.client.GuiMessageTag;
+import net.minecraft.util.ARGB;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -26,9 +23,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(ChatComponent.class)
 public abstract class ChatComponentMixin {
-    private static final Pattern LINK = Pattern.compile("https?://\\S+");
-    private static final Pattern TRAILING_PUNCTUATION = Pattern.compile("[.,;:!?)\\]}'\"]+$");
-
     @Shadow private List<GuiMessage> allMessages;
     @Shadow private List<GuiMessage.Line> trimmedMessages;
     @Shadow private int chatScrollbarPos;
@@ -56,35 +50,15 @@ public abstract class ChatComponentMixin {
     @ModifyVariable(method = "addMessage(Lnet/minecraft/network/chat/Component;Lnet/minecraft/network/chat/MessageSignature;Lnet/minecraft/client/GuiMessageTag;)V",
             at = @At("HEAD"), argsOnly = true)
     private Component stripResources(Component message) {
+        // ponytail: addMessage(Component) delegates to the signed overload, so this runs twice
+        // for the same message. Keep the first pass's full match list intact.
+        if (pendingMatches != null) return message;
         List<ResourceMatch> matches = ResourceDetector.findResources(message);
         if (matches.isEmpty()) return message;
         String full = message.getString();
-        List<int[]> ranges = new ArrayList<>();
-        int firstStart = -1;
-        String firstToken = null;
-
-        for (ResourceMatch match : matches) {
-            if (firstStart < 0) {
-                firstStart = full.indexOf(match.originalUrl());
-                firstToken = match.originalUrl();
-            }
-            // ponytail: pages keep their link in chat; if unfurl fails the URL is still visible (fail open).
-            if (match.kind() == ResourceKind.PAGE) continue;
-            String raw = match.originalUrl();
-            int start = full.indexOf(raw);
-            if (start < 0) {
-                Matcher matcher = LINK.matcher(full);
-                while (matcher.find()) {
-                    String token = TRAILING_PUNCTUATION.matcher(matcher.group()).replaceAll("");
-                    start = full.indexOf(token);
-                    if (start >= 0) {
-                        raw = token;
-                        break;
-                    }
-                }
-            }
-            if (start >= 0) ranges.add(new int[]{start, start + raw.length()});
-        }
+        List<int[]> ranges = ResourceDetector.stripRanges(matches, full);
+        int firstStart = full.indexOf(matches.get(0).originalUrl());
+        String firstToken = matches.get(0).originalUrl();
 
         if (firstStart < 0) {
             firstStart = 0;
@@ -132,11 +106,19 @@ public abstract class ChatComponentMixin {
         EmbedManager.INSTANCE.onMessage(matches, newest.addedTime(), prefix == null ? "" : prefix, urlWidth);
     }
 
-    // ponytail: vanilla's FIRST forEachLine pass draws the per-line highlight via this synthetic lambda with the
-    // ORIGINAL row slot (the 7th arg, index 6). Shift it like the text pass or highlights lag the shifted rows.
-    @ModifyVariable(method = "method_75802", at = @At("HEAD"), argsOnly = true, index = 6)
-    private static int shiftHighlightRow(int row) {
-        return row + EmbedManager.INSTANCE.shiftRowsForSlot(row);
+    // ponytail: vanilla's FIRST forEachLine pass draws one one-row highlight via this lambda.
+    // Shift it to follow the text AND stretch its lower edge over the rows the GIF reserved.
+    @Inject(method = "method_75802", at = @At("HEAD"), cancellable = true)
+    private static void drawChatBackground(int chatBottom, int entryHeight,
+                                           ChatComponent.ChatGraphicsAccess access, int width, float opacity,
+                                           GuiMessage.Line line, int slot, float textBackgroundOpacity,
+                                           CallbackInfo ci) {
+        int shiftedSlot = slot + EmbedManager.INSTANCE.shiftRowsForSlot(slot);
+        int y2 = chatBottom - shiftedSlot * entryHeight;
+        int reserve = EmbedManager.INSTANCE.backgroundSpanRows(slot);
+        if (reserve > 0) y2 += (reserve - 1) * entryHeight;
+        access.fill(-4, y2 - entryHeight, width + 8, y2, ARGB.black(textBackgroundOpacity * opacity));
+        ci.cancel();
     }
 
     @Inject(method = "render(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/gui/Font;IIIZZ)V", at = @At("HEAD"))
