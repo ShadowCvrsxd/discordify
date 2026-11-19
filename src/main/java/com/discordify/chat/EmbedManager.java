@@ -38,8 +38,8 @@ public final class EmbedManager {
     private record Draw(GifPlayer player, int addedTime, int x, int y, int w, int h) {
     }
 
-    private record Pending(int addedTime, GifPlayer player, int lineLocalX, int availW, int reserve,
-                           int slot, int lineHeight, int chatBottomLocal, double scale) {
+    private record Pending(int addedTime, GifPlayer player, int lineLocalX, int availWScreen, int reserve,
+                           int slot, int lineHeight, int chatBottomLocal, double scale, double guiScale) {
     }
 
     private static final class Embed {
@@ -150,7 +150,9 @@ public final class EmbedManager {
         for (int i = 0; i < trimmed.size(); i++) {
             firstLine.putIfAbsent(trimmed.get(i).addedTime(), i);
         }
-        int lineScreenHeight = Math.max(1, (int) Math.round(lineHeight * scale));
+        // getScale() is chatScale, not GUI scale; a chat row's real screen height is both multiplied.
+        double guiScale = Minecraft.getInstance().getWindow().getGuiScale();
+        int lineScreenHeight = Math.max(1, (int) Math.round(lineHeight * scale * guiScale));
         int chatBottomLocal = (int) Math.floor((Minecraft.getInstance().getWindow().getGuiScaledHeight() - 40.0D) / scale);
         int localWidth = Math.max(1, chatWidth);
         int bottomRowExclusive = Math.min(trimmed.size(), chatScrollbarPos + linesPerPage);
@@ -178,12 +180,12 @@ public final class EmbedManager {
             if (player == null) continue;
             if (drawn >= MAX_VISIBLE_EMBEDS) continue;
 
-            int availW = Math.max(1, (int) Math.round((localWidth - lineLocalX) * scale));
+            int availWScreen = Math.max(1, (int) Math.round((localWidth - lineLocalX) * scale * guiScale));
             int reserve = reserveRows(player.getFrameWidth(), player.getFrameHeight(),
-                    availW, lineScreenHeight, MAX_GIF_HEIGHT_LINES);
+                    availWScreen, lineScreenHeight, MAX_GIF_HEIGHT_LINES);
             int slot = lineIndex - chatScrollbarPos;
-            pendingBySlot.putIfAbsent(slot, new Pending(addedTime, player, lineLocalX, availW, reserve,
-                    slot, lineHeight, chatBottomLocal, scale));
+            pendingBySlot.putIfAbsent(slot, new Pending(addedTime, player, lineLocalX, availWScreen, reserve,
+                    slot, lineHeight, chatBottomLocal, scale, guiScale));
             drawn++;
         }
         if (pendingBySlot.isEmpty()) return;
@@ -197,12 +199,13 @@ public final class EmbedManager {
 
         List<Draw> draws = new ArrayList<>();
         for (Pending p : pendingBySlot.values()) {
-            int newSlot = cumulativeShift[p.slot()];
+            int newSlot = p.slot() + cumulativeShift[p.slot()];
             int gifTopLocal = p.chatBottomLocal() - newSlot * p.lineHeight();
             int gifY = (int) Math.round(gifTopLocal * p.scale());
             int gifH = Math.max(1, (int) Math.round(p.reserve() * p.lineHeight() * p.scale()));
             int gifX = (int) Math.round((4.0D + p.lineLocalX()) * p.scale());
-            int gifW = drawWidth(p.player().getFrameWidth(), p.player().getFrameHeight(), gifH, p.availW());
+            int availWGui = Math.max(1, (int) Math.round(p.availWScreen() / p.guiScale()));
+            int gifW = drawWidth(p.player().getFrameWidth(), p.player().getFrameHeight(), gifH, availWGui);
             draws.add(new Draw(p.player(), p.addedTime(), gifX, gifY, gifW, gifH));
         }
         pendingDraws = draws;
