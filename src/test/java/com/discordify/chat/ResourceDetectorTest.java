@@ -8,8 +8,34 @@ import net.minecraft.network.chat.Component;
 import org.junit.jupiter.api.Test;
 
 class ResourceDetectorTest {
+    private static final String DISCORD_CDN =
+            "https://cdn.discordapp.com/attachments/1228641110612643844/1490366458872729710/"
+            + "263187a6b0342d81fc96557d1cc053b3.gif?ex=6b00616d&is=6aff0fed&"
+            + "hm=2bd4da18ed7a1e73cd26bc29deb4d693361832d6b6dd92c770b09240f5cc5f7a&";
+
     private static Component message(String text) {
         return Component.literal(text);
+    }
+
+    @Test
+    void preservesSignedParamsOnDiscordCdnUrl() {
+        List<ResourceMatch> found = ResourceDetector.findResources(message(DISCORD_CDN));
+        assertEquals(1, found.size());
+        assertEquals(ResourceKind.GIF, found.get(0).kind());
+        assertEquals(DISCORD_CDN, found.get(0).mediaUrl());
+        assertEquals(DISCORD_CDN, found.get(0).originalUrl());
+        List<int[]> ranges = ResourceDetector.stripRanges(found, DISCORD_CDN);
+        assertEquals(1, ranges.size());
+        assertEquals(DISCORD_CDN, DISCORD_CDN.substring(ranges.get(0)[0], ranges.get(0)[1]));
+    }
+
+    @Test
+    void acceptsExtensionlessHttpsUrlAsCandidate() {
+        String url = "https://example.com/attachments/263187a6b0342d81fc96557d1cc053b3?ex=1&is=2&hm=3";
+        List<ResourceMatch> found = ResourceDetector.findResources(message(url));
+        assertEquals(1, found.size());
+        assertEquals(ResourceKind.PAGE, found.get(0).kind());
+        assertEquals(url, found.get(0).mediaUrl());
     }
 
     @Test
@@ -39,26 +65,27 @@ class ResourceDetectorTest {
     }
 
     @Test
-    void acceptsDirectImagesFromTrustedHosts() {
-        assertImage("https://i.imgur.com/aBcDe.png", "png");
-        assertImage("https://i.redd.it/photo.JPG", "jpg");
-        assertImage("https://pbs.twimg.com/media/pic.jpeg", "jpeg");
-        assertImage("https://cdn.discordapp.com/attachments/1/2/file.webp", "webp");
-        assertImage("https://media.giphy.com/media/abc/giphy.gif", "gif");
-        assertImage("https://media1.tenor.com/m/abc/cat.gif", "gif");
+    void acceptsDirectImagesFromAnyHttpsHost() {
+        assertImage("https://i.imgur.com/aBcDe.png");
+        assertImage("https://i.redd.it/photo.JPG");
+        assertImage("https://pbs.twimg.com/media/pic.jpeg");
+        assertImage("https://cdn.discordapp.com/attachments/1/2/file.webp");
+        assertImage("https://media.giphy.com/media/abc/giphy.gif");
+        assertImage("https://media1.tenor.com/m/abc/cat.gif");
     }
 
-    private static void assertImage(String url, String ignored) {
+    @Test
+    void acceptsPreviouslyUntrustedHostsWithMediaExtensions() {
+        assertImage("https://example.com/assets/cat.gif");
+        assertImage("https://evil.test/photo.png?q=1");
+        assertImage("https://klippy.example/pic.jpeg");
+    }
+
+    private static void assertImage(String url) {
         List<ResourceMatch> found = ResourceDetector.findResources(message(url));
         assertEquals(1, found.size(), url);
         assertTrue(found.get(0).kind() == ResourceKind.GIF || found.get(0).kind() == ResourceKind.IMAGE, url);
         assertEquals(url, found.get(0).mediaUrl());
-    }
-
-    @Test
-    void rejectsUntrustedHostEvenWithImageExtension() {
-        assertTrue(ResourceDetector.findResources(message("https://example.com/assets/cat.gif")).isEmpty());
-        assertTrue(ResourceDetector.findResources(message("https://evil.test/photo.png?q=1")).isEmpty());
     }
 
     @Test
@@ -69,16 +96,23 @@ class ResourceDetectorTest {
     }
 
     @Test
-    void rejectsVideoAndLeavesAvifAsText() {
-        assertTrue(ResourceDetector.findResources(message("https://media.giphy.com/media/abc/giphy.mp4")).isEmpty());
-        assertTrue(ResourceDetector.findResources(message("https://i.imgur.com/movie.webm")).isEmpty());
-        assertTrue(ResourceDetector.findResources(message("https://i.imgur.com/photo.avif")).isEmpty());
+    void rejectsUserinfoAndNonDefaultPort() {
+        assertTrue(ResourceDetector.findResources(message("https://user:pw@example.com/a.gif")).isEmpty());
+        assertTrue(ResourceDetector.findResources(message("https://example.com:8443/a.gif")).isEmpty());
     }
 
     @Test
-    void treatsTrustedPageAsUnfurlCandidate() {
+    void skipsVideoAndArchiveExtensionsOnAnyHost() {
+        assertTrue(ResourceDetector.findResources(message("https://example.com/media/clip.mp4")).isEmpty());
+        assertTrue(ResourceDetector.findResources(message("https://example.com/media/movie.webm")).isEmpty());
+        assertTrue(ResourceDetector.findResources(message("https://example.com/media/photo.avif")).isEmpty());
+        assertTrue(ResourceDetector.findResources(message("https://example.com/files/bundle.zip")).isEmpty());
+    }
+
+    @Test
+    void treatsAnyHttpsPageAsUnfurlCandidate() {
         List<ResourceMatch> found = ResourceDetector.findResources(message(
-                "https://giphy.com/gifs/category/topic"));
+                "https://example.com/gifs/category/topic"));
         assertEquals(1, found.size());
         assertEquals(ResourceKind.PAGE, found.get(0).kind());
     }

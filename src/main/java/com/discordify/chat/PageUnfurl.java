@@ -62,7 +62,8 @@ public final class PageUnfurl {
 
     public static Optional<String> resolve(String base, String reference) {
         try {
-            return Optional.of(URI.create(base).resolve(reference).toString());
+            String result = URI.create(base).resolve(reference).toString();
+            return result.startsWith("https://") ? Optional.of(result) : Optional.empty();
         } catch (IllegalArgumentException e) {
             return Optional.empty();
         }

@@ -43,6 +43,14 @@ class PageUnfurlTest {
     }
 
     @Test
+    void resolveKeepsSignedQueryAndDropsNonHttps() {
+        String signed = "https://cdn.discordapp.com/a.gif?ex=1&is=2&hm=3&";
+        assertEquals(Optional.of(signed), PageUnfurl.resolve(PAGE, signed));
+        assertTrue(PageUnfurl.resolve(PAGE, "http://127.0.0.1/a.gif").isEmpty());
+        assertTrue(PageUnfurl.resolve(PAGE, "javascript:alert(1)").isEmpty());
+    }
+
+    @Test
     void fallsBackToOEmbedThumbnail() {
         String json = "{\"title\":\"x\",\"thumbnail_url\":\"https:\\/\\/i.imgur.com\\/thumb.gif\","
                 + "\"thumbnail_width\":200,\"thumbnail_height\":100}";
