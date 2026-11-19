@@ -3,7 +3,8 @@
   "package": "com.discordify.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "ChatComponentMixin"
+    "ChatComponentMixin",
+    "ChatLineMixin"
   ],
   "injectors": {
     "defaultRequire": 1

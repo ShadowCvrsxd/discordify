@@ -15,6 +15,9 @@ import org.lwjgl.system.MemoryUtil;
 
 public final class GifPlayer implements AutoCloseable {
     private static final AtomicInteger NEXT_ID = new AtomicInteger();
+    // ponytail: cap texture uploads, not decode resolution; real frame delays still drive the index.
+    private static final int MAX_FPS = 20;
+    private static final long MIN_FRAME_INTERVAL_MS = 1000L / MAX_FPS;
 
     private final List<GifDecoder.Frame> frames;
     private final int width;
@@ -44,13 +47,18 @@ public final class GifPlayer implements AutoCloseable {
     public void advance(long now) {
         if (closed) return;
         int delayMs = frames.get(index).delayMs();
+        if (!shouldAdvance(now, frameStart, delayMs)) return;
         long steps = frameSteps(now, frameStart, delayMs);
-        if (steps < 1) return;
         int next = nextFrameIndex(index, now, frameStart, delayMs, frames.size());
         frameStart += steps * delayMs;
         if (next == index) return;
         index = next;
         uploadFrame();
+    }
+
+    static boolean shouldAdvance(long now, long frameStart, int delayMs) {
+        if (delayMs <= 0 || now - frameStart < MIN_FRAME_INTERVAL_MS) return false;
+        return frameSteps(now, frameStart, delayMs) >= 1;
     }
 
     static long frameSteps(long now, long frameStart, int delayMs) {
