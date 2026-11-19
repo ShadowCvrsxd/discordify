@@ -324,7 +324,7 @@ public final class ResourceDownloader {
         int n;
         while ((n = in.read(buffer)) != -1) {
             if (total + n > maxBytes) {
-                throw new IOException("Resource exceeds " + (maxBytes / (1024 * 1024)) + " MiB cap");
+                throw new IOException("Resource exceeds " + ((maxBytes + 1024 * 1024 - 1) / (1024 * 1024)) + " MiB cap");
             }
             out.write(buffer, 0, n);
             total += n;
