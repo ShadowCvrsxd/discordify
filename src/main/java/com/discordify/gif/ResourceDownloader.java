@@ -348,14 +348,18 @@ public final class ResourceDownloader {
         }
     }
 
-    private static String readLine(InputStream in) throws IOException {
+    static String readLine(InputStream in) throws IOException {
         ByteArrayOutputStream line = new ByteArrayOutputStream();
         int c;
         while ((c = in.read()) != -1) {
-            if (c == '\n') return line.toString(StandardCharsets.ISO_8859_1);
+            if (c == '\n') return stripCr(line.toString(StandardCharsets.ISO_8859_1));
             line.write(c);
         }
-        return line.size() == 0 ? null : line.toString(StandardCharsets.ISO_8859_1);
+        return line.size() == 0 ? null : stripCr(line.toString(StandardCharsets.ISO_8859_1));
+    }
+
+    private static String stripCr(String line) {
+        return line.endsWith("\r") ? line.substring(0, line.length() - 1) : line;
     }
 
     private static int parseStatus(String statusLine) throws IOException {

@@ -205,6 +205,15 @@ class ResourceDownloaderTest {
     }
 
     @Test
+    void readLineStripsCrSoBlankHeaderLineEndsHeaderBlock() throws IOException {
+        ByteArrayInputStream in = new ByteArrayInputStream(
+                "Content-Type: image/gif\r\n\r\nGIF89a".getBytes(StandardCharsets.ISO_8859_1));
+        assertEquals("Content-Type: image/gif", ResourceDownloader.readLine(in));
+        assertEquals("", ResourceDownloader.readLine(in));
+        assertEquals("GIF89a", ResourceDownloader.readLine(in));
+    }
+
+    @Test
     void streamSniffPicksCapFromMagicNotExtension() {
         assertEquals(8 * 1024 * 1024, ResourceDownloader.capFor(GIF8, 16 * 1024 * 1024));
         assertEquals(8 * 1024 * 1024, ResourceDownloader.capFor("GIF87a".getBytes(StandardCharsets.US_ASCII),
