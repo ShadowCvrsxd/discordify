@@ -33,6 +33,11 @@ class GifPlayerTest {
     }
 
     @Test
+    void fpsCapIsTwentyFramesPerSecond() {
+        assertEquals(50L, GifPlayer.minFrameIntervalMs());
+    }
+
+    @Test
     void fpsCapSkipsFastFrames() {
         assertFalse(GifPlayer.shouldAdvance(1_049L, 1_000L, 20));
         assertTrue(GifPlayer.shouldAdvance(1_050L, 1_000L, 20));

@@ -81,6 +81,14 @@ class EmbedManagerLayoutTest {
     }
 
     @Test
+    void atMostFiveLinksPerMessage() {
+        assertEquals(0, EmbedManager.capLinks(0));
+        assertEquals(3, EmbedManager.capLinks(3));
+        assertEquals(5, EmbedManager.capLinks(5));
+        assertEquals(5, EmbedManager.capLinks(20));
+    }
+
+    @Test
     void lineIsStaleOnlyAfterBeingUndrawnForTwoTicks() {
         Integer lastSeen = 100;
         assertFalse(EmbedManager.isStaleLine(100, null));

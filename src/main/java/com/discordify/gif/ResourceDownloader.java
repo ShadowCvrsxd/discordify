@@ -44,16 +44,21 @@ public final class ResourceDownloader {
     private static final Logger LOGGER = LoggerFactory.getLogger("Discordify");
     private static final int MAX_REDIRECTS = 5;
     private static final int MAX_GIF_BYTES = 8 * 1024 * 1024;
-    private static final int MAX_IMAGE_BYTES = 50 * 1024 * 1024;
+    private static final int MAX_IMAGE_BYTES = 16 * 1024 * 1024;
+    private static final int MAX_TEXT_BYTES = 1024 * 1024;
+    private static final int SNIFF_BYTES = 16;
+    private static final int DOWNLOAD_THREADS = 4;
     private static final long REQUEST_TIMEOUT_MS = 10_000L;
-    private static final long FETCH_DEADLINE_NANOS = 10_000_000_000L;
+    // ponytail: 10s killed ~1 MiB GIFs at 100 kB/s; body reads get 60s while connect/read stay 10s.
+    private static final long FETCH_DEADLINE_NANOS = 60_000_000_000L;
+    private static final long CACHE_TTL_MS = 24L * 60 * 60 * 1000;
     private static final long HOST_COOLDOWN_MS = 2000L;
     private static final char[] HEX = "0123456789abcdef".toCharArray();
     private static final List<String> CACHE_EXTENSIONS = List.of("gif", "png", "jpg", "webp", "avif", "img");
     // ponytail: catches 0x7f000001 / 2130706433 / 127.1 / 0177.0.0.1 without a full URL parser.
     private static final Pattern IP_LITERAL = Pattern.compile("^(?=.*[0-9])[0-9a-fA-FxX.]+$");
 
-    private final ExecutorService pool = Executors.newFixedThreadPool(2, daemonFactory());
+    private final ExecutorService pool = Executors.newFixedThreadPool(DOWNLOAD_THREADS, daemonFactory());
     // ponytail: in-memory cooldown resets on reload; sufficient for a client mod
     private final Map<String, Long> lastFetchMs = new ConcurrentHashMap<>();
 
@@ -204,6 +209,7 @@ public final class ResourceDownloader {
         checkCooldown(url);
         SafeResponse response = safeFetch(url, deadline, MAX_IMAGE_BYTES);
         byte[] bytes = response.body();
+        if (bytes == null) return null;
         ResourceKind kind = sniffKind(bytes);
         if (kind != null) {
             validateResponse(response.status(), response.contentType(), kind);
@@ -221,6 +227,7 @@ public final class ResourceDownloader {
                     .orElse(null);
             if (oEmbed != null) {
                 SafeResponse oe = safeFetch(oEmbed, deadline, MAX_IMAGE_BYTES);
+                if (oe.body() == null) return null;
                 String type = oe.contentType() == null ? "" : oe.contentType().toLowerCase(Locale.ROOT);
                 if (type.contains("json")) {
                     mediaUrl = PageUnfurl.thumbnail(new String(oe.body(), StandardCharsets.UTF_8), oe.finalUrl())
@@ -231,6 +238,7 @@ public final class ResourceDownloader {
         // ponytail: no usable og:image / oEmbed -> fail open, the caller leaves the original link as text.
         if (mediaUrl == null) return null;
         SafeResponse media = safeFetch(mediaUrl, deadline, MAX_IMAGE_BYTES);
+        if (media.body() == null) return null;
         ResourceKind mediaKind = sniffKind(media.body());
         if (mediaKind == null) return null;
         validateResponse(media.status(), media.contentType(), mediaKind);
@@ -330,7 +338,7 @@ public final class ResourceDownloader {
                 if (status >= 300 && status < 400) {
                     return new SafeResponse(status, contentType, location, null, null);
                 }
-                byte[] body = chunked ? readChunked(in, maxBytes, deadline) : readBounded(in, maxBytes, deadline);
+                byte[] body = readStreamedBody(in, chunked, contentLength, maxBytes, deadline);
                 return new SafeResponse(status, contentType, null, null, body);
             } finally {
                 ssl.close();
@@ -392,16 +400,24 @@ public final class ResourceDownloader {
         return cachePath(gameDir, url, "gif");
     }
 
-    private static byte[] readCache(Path gameDir, String url) {
+    static byte[] readCache(Path gameDir, String url) {
         for (String extension : CACHE_EXTENSIONS) {
             Path path = cachePath(gameDir, url, extension);
             try {
-                if (Files.isRegularFile(path)) return Files.readAllBytes(path);
+                if (!Files.isRegularFile(path)) continue;
+                long modified = Files.getLastModifiedTime(path).toMillis();
+                if (isCacheFresh(modified, System.currentTimeMillis(), CACHE_TTL_MS)) {
+                    return Files.readAllBytes(path);
+                }
             } catch (IOException e) {
                 return null;
             }
         }
         return null;
+    }
+
+    static boolean isCacheFresh(long lastModifiedMs, long nowMs, long ttlMs) {
+        return lastModifiedMs <= nowMs && nowMs - lastModifiedMs < ttlMs;
     }
 
     private static void writeCache(Path gameDir, String url, String extension, byte[] bytes) {
@@ -473,34 +489,98 @@ public final class ResourceDownloader {
         return readBounded(in, maxBytes, Long.MAX_VALUE);
     }
 
-    static byte[] readChunked(InputStream in, int maxBytes, long deadline) throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        while (true) {
-            if (System.nanoTime() >= deadline) throw new IOException("resource fetch timed out");
-            String sizeLine = readLine(in);
-            if (sizeLine == null) throw new IOException("truncated chunked body");
-            int size;
-            try {
-                size = Integer.parseInt(sizeLine.split(";", 2)[0].trim(), 16);
-            } catch (NumberFormatException e) {
-                throw new IOException("bad chunk size");
-            }
-            if (size == 0) {
-                readLine(in);
-                break;
-            }
-            if (out.size() + size > maxBytes) throw new IOException("Resource exceeds cap");
-            byte[] chunk = new byte[size];
-            int read = 0;
-            while (read < size) {
-                int n = in.read(chunk, read, size - read);
-                if (n < 0) throw new IOException("truncated chunked body");
-                read += n;
-            }
-            out.write(chunk);
-            readLine(in);
+    // ponytail: sniff only the first bytes before picking a cap; unknown binary is dropped
+    // immediately instead of buffering a whole (possibly huge) non-image body to read its header.
+    static byte[] readStreamedBody(InputStream raw, boolean chunked, long contentLength,
+                                   int maxBytes, long deadline) throws IOException {
+        InputStream in = chunked ? new ChunkedInputStream(raw) : raw;
+        byte[] prefix = new byte[SNIFF_BYTES];
+        int len = readPrefix(in, prefix, deadline);
+        if (len == 0) throw new IOException("empty response body");
+        int cap = capFor(len == prefix.length ? prefix : Arrays.copyOf(prefix, len), maxBytes);
+        if (cap < 0) return null;
+        if (contentLength > cap) {
+            throw new IOException("Resource exceeds " + ((cap + 1024 * 1024 - 1) / (1024 * 1024)) + " MiB cap (Content-Length)");
         }
-        return out.toByteArray();
+        byte[] rest = readBounded(in, cap - len, deadline);
+        byte[] out = new byte[len + rest.length];
+        System.arraycopy(prefix, 0, out, 0, len);
+        System.arraycopy(rest, 0, out, len, rest.length);
+        return out;
+    }
+
+    private static int readPrefix(InputStream in, byte[] buf, long deadline) throws IOException {
+        int read = 0;
+        while (read < buf.length) {
+            if (System.nanoTime() >= deadline) throw new IOException("resource fetch timed out");
+            int n = in.read(buf, read, buf.length - read);
+            if (n < 0) break;
+            read += n;
+        }
+        return read;
+    }
+
+    static int capFor(byte[] prefix, int imageCap) {
+        ResourceKind kind = sniffKind(prefix);
+        if (kind == ResourceKind.GIF) return MAX_GIF_BYTES;
+        if (kind == ResourceKind.IMAGE) return imageCap;
+        return looksLikeText(prefix) ? MAX_TEXT_BYTES : -1;
+    }
+
+    static boolean looksLikeText(byte[] prefix) {
+        int start = prefix.length >= 3 && (prefix[0] & 0xFF) == 0xEF
+                && (prefix[1] & 0xFF) == 0xBB && (prefix[2] & 0xFF) == 0xBF ? 3 : 0;
+        int end = Math.min(prefix.length, 64);
+        String head = new String(prefix, start, Math.max(0, end - start), StandardCharsets.US_ASCII)
+                .trim().toLowerCase(Locale.ROOT);
+        return head.startsWith("<!doctype") || head.startsWith("<html") || head.startsWith("<head")
+                || head.startsWith("<?xml") || head.startsWith("{") || head.startsWith("[");
+    }
+
+    static byte[] readChunked(InputStream in, int maxBytes, long deadline) throws IOException {
+        return readBounded(new ChunkedInputStream(in), maxBytes, deadline);
+    }
+
+    private static final class ChunkedInputStream extends InputStream {
+        private final InputStream in;
+        private int remaining;
+        private boolean first = true;
+        private boolean done;
+
+        ChunkedInputStream(InputStream in) {
+            this.in = in;
+        }
+
+        @Override
+        public int read() throws IOException {
+            byte[] one = new byte[1];
+            return read(one, 0, 1) < 0 ? -1 : one[0] & 0xFF;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            if (done) return -1;
+            if (remaining == 0) {
+                if (!first) readLine(in);
+                first = false;
+                String sizeLine = readLine(in);
+                if (sizeLine == null) throw new IOException("truncated chunked body");
+                try {
+                    remaining = Integer.parseInt(sizeLine.split(";", 2)[0].trim(), 16);
+                } catch (NumberFormatException e) {
+                    throw new IOException("bad chunk size");
+                }
+                if (remaining == 0) {
+                    for (String trailer; (trailer = readLine(in)) != null && !trailer.isEmpty(); ) { }
+                    done = true;
+                    return -1;
+                }
+            }
+            int n = in.read(b, off, Math.min(len, remaining));
+            if (n < 0) throw new IOException("truncated chunked body");
+            remaining -= n;
+            return n;
+        }
     }
 
     static byte[] readBounded(InputStream in, int maxBytes, long deadline) throws IOException {

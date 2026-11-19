@@ -1,6 +1,5 @@
 package com.discordify.gif;
 
-import com.mojang.blaze3d.platform.NativeImage;
 import java.awt.image.BufferedImage;
 import java.nio.IntBuffer;
 import java.util.List;
@@ -25,6 +24,7 @@ public final class GifPlayer implements AutoCloseable {
     private final Identifier id;
     private final TextureManager tm;
     private final DynamicTexture texture;
+    private final IntBuffer pixelBuffer;
 
     private int index;
     private long frameStart;
@@ -39,6 +39,7 @@ public final class GifPlayer implements AutoCloseable {
         this.id = Identifier.fromNamespaceAndPath("discordify", "gif/" + NEXT_ID.getAndIncrement());
         this.tm = Minecraft.getInstance().getTextureManager();
         this.texture = new DynamicTexture(() -> "discordify-gif", width, height, false);
+        this.pixelBuffer = MemoryUtil.memIntBuffer(texture.getPixels().getPointer(), width * height);
         tm.register(id, texture);
         this.frameStart = Util.getMillis();
         uploadFrame();
@@ -54,6 +55,10 @@ public final class GifPlayer implements AutoCloseable {
         if (next == index) return;
         index = next;
         uploadFrame();
+    }
+
+    static long minFrameIntervalMs() {
+        return MIN_FRAME_INTERVAL_MS;
     }
 
     static boolean shouldAdvance(long now, long frameStart, int delayMs) {
@@ -74,13 +79,11 @@ public final class GifPlayer implements AutoCloseable {
     }
 
     private void uploadFrame() {
-        // ponytail: write the native buffer directly; replaces width*height JNI setPixel calls with one bulk region.
-        NativeImage pixels = texture.getPixels();
+        // ponytail: reuse one native buffer view; no JNI/pointer wrapper allocation per frame.
         BufferedImage image = frames.get(index).image();
-        IntBuffer buffer = MemoryUtil.memIntBuffer(pixels.getPointer(), width * height);
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
-                buffer.put(y * width + x, ARGB.toABGR(image.getRGB(x, y)));
+                pixelBuffer.put(y * width + x, ARGB.toABGR(image.getRGB(x, y)));
             }
         }
         texture.upload();

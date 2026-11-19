@@ -14,7 +14,9 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import org.junit.jupiter.api.Test;
 
 class ResourceDownloaderTest {
@@ -200,6 +202,90 @@ class ResourceDownloaderTest {
     void safeUrlKeepsQueryStripsFragment() {
         String raw = "https://media.giphy.com/media/abc/giphy.gif?token=secret#frag";
         assertEquals("https://media.giphy.com/media/abc/giphy.gif?token=secret", ResourceDownloader.safeUrl(raw));
+    }
+
+    @Test
+    void streamSniffPicksCapFromMagicNotExtension() {
+        assertEquals(8 * 1024 * 1024, ResourceDownloader.capFor(GIF8, 16 * 1024 * 1024));
+        assertEquals(8 * 1024 * 1024, ResourceDownloader.capFor("GIF87a".getBytes(StandardCharsets.US_ASCII),
+                16 * 1024 * 1024));
+        assertEquals(16 * 1024 * 1024, ResourceDownloader.capFor(PNG, 16 * 1024 * 1024));
+        assertEquals(16 * 1024 * 1024, ResourceDownloader.capFor(JPEG, 16 * 1024 * 1024));
+        assertEquals(1024 * 1024, ResourceDownloader.capFor(HTML, 16 * 1024 * 1024));
+        assertEquals(1024 * 1024, ResourceDownloader.capFor(
+                "{\"thumbnailUrl\":\"x\"}".getBytes(StandardCharsets.UTF_8), 16 * 1024 * 1024));
+        assertEquals(-1, ResourceDownloader.capFor("PK\u0003\u0004blob".getBytes(StandardCharsets.US_ASCII),
+                16 * 1024 * 1024));
+        assertEquals(-1, ResourceDownloader.capFor("plain text error".getBytes(StandardCharsets.US_ASCII),
+                16 * 1024 * 1024));
+    }
+
+    @Test
+    void streamingBodySniffsPrefixAndKeepsWholePayload() throws IOException {
+        byte[] html = concat(HTML, new byte[512 * 1024]);
+        assertArrayEquals(html, ResourceDownloader.readStreamedBody(new ByteArrayInputStream(html), false,
+                html.length, 16 * 1024 * 1024, Long.MAX_VALUE));
+        byte[] gif = concat(GIF8, "payload".getBytes(StandardCharsets.US_ASCII));
+        assertArrayEquals(gif, ResourceDownloader.readStreamedBody(new ByteArrayInputStream(gif), false,
+                gif.length, 16 * 1024 * 1024, Long.MAX_VALUE));
+    }
+
+    @Test
+    void unknownBinaryIsAbortedBeforeReadingTheRest() throws IOException {
+        byte[] junk = concat(new byte[]{'P', 'K', 3, 4}, new byte[2 * 1024 * 1024]);
+        assertNull(ResourceDownloader.readStreamedBody(new ByteArrayInputStream(junk), false,
+                junk.length, 16 * 1024 * 1024, Long.MAX_VALUE));
+    }
+
+    @Test
+    void streamingBodyHonoursGifCapAndContentLength() {
+        byte[] oversize = concat(GIF8, new byte[8 * 1024 * 1024]);
+        IOException cap = assertThrows(IOException.class, () -> ResourceDownloader.readStreamedBody(
+                new ByteArrayInputStream(oversize), false, oversize.length, 16 * 1024 * 1024, Long.MAX_VALUE));
+        assertTrue(cap.getMessage().contains("8 MiB"));
+
+        IOException length = assertThrows(IOException.class, () -> ResourceDownloader.readStreamedBody(
+                new ByteArrayInputStream(GIF8), false, 9L * 1024 * 1024, 16 * 1024 * 1024, Long.MAX_VALUE));
+        assertTrue(length.getMessage().contains("8 MiB"));
+    }
+
+    @Test
+    void streamingChunkedBodySniffsMagic() throws IOException {
+        byte[] gif = "GIF89a-payload".getBytes(StandardCharsets.US_ASCII);
+        String wire = Integer.toHexString(gif.length) + "\r\n" + new String(gif, StandardCharsets.US_ASCII)
+                + "\r\n0\r\n\r\n";
+        assertArrayEquals(gif, ResourceDownloader.readStreamedBody(
+                new ByteArrayInputStream(wire.getBytes(StandardCharsets.US_ASCII)), true,
+                -1, 16 * 1024 * 1024, Long.MAX_VALUE));
+    }
+
+    @Test
+    void cacheEntryIsFreshOnlyWithinTtl() {
+        long now = 1_000_000L;
+        assertTrue(ResourceDownloader.isCacheFresh(now - 1000, now, 60_000));
+        assertFalse(ResourceDownloader.isCacheFresh(now - 61_000, now, 60_000));
+        assertFalse(ResourceDownloader.isCacheFresh(now + 1, now, 60_000));
+    }
+
+    @Test
+    void staleCacheFileIsIgnored() throws IOException {
+        Path dir = Files.createTempDirectory("discordify-ttl");
+        String url = "https://example.com/a.gif";
+        Path file = ResourceDownloader.cachePath(dir, url, "gif");
+        Files.createDirectories(file.getParent());
+        Files.write(file, GIF8);
+        try {
+            Files.setLastModifiedTime(file, FileTime.fromMillis(System.currentTimeMillis() - 10_000L));
+            assertArrayEquals(GIF8, ResourceDownloader.readCache(dir, url));
+            Files.setLastModifiedTime(file,
+                    FileTime.fromMillis(System.currentTimeMillis() - 2L * 24 * 60 * 60 * 1000));
+            assertNull(ResourceDownloader.readCache(dir, url));
+        } finally {
+            Files.deleteIfExists(file);
+            Files.deleteIfExists(file.getParent());
+            Files.deleteIfExists(file.getParent().getParent());
+            Files.deleteIfExists(dir);
+        }
     }
 
     private static InetAddress mapped() throws UnknownHostException {

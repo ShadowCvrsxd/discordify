@@ -5,6 +5,7 @@ import com.discordify.gif.GifPlayer;
 import com.discordify.gif.ResourceDownloader;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -34,6 +35,7 @@ public final class EmbedManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("Discordify");
     private static final AtomicInteger NEXT_ID = new AtomicInteger();
     private static final int MAX_VISIBLE_EMBEDS = 3;
+    static final int MAX_LINKS_PER_MESSAGE = 5;
     // ponytail: height budget in chat lines; native size is kept whenever it fits under it.
     private static final int MAX_GIF_HEIGHT_LINES = 10;
     // ponytail: ~0.1s at 20 ticks/s; vanilla stops calling accept for a fully faded line.
@@ -65,7 +67,14 @@ public final class EmbedManager {
     private final ResourceDownloader downloader = new ResourceDownloader();
     private final Map<Integer, Float> opacityByTime = new HashMap<>();
     private final Map<Integer, Integer> lastSeenTickByAddedTime = new HashMap<>();
-    private List<Draw> pendingDraws = List.of();
+    // ponytail: reuse these every frame; prepare()/draw() run at render HEAD and allocations there stutter.
+    private final List<Draw> pendingDraws = new ArrayList<>();
+    private final Set<Integer> liveTimes = new HashSet<>();
+    private final Set<Integer> visibleTimes = new HashSet<>();
+    private final Map<Integer, Integer> firstLine = new HashMap<>();
+    private final Map<Integer, Integer> reserveBySlot = new HashMap<>();
+    private final List<Map.Entry<Integer, Embed>> ordered = new ArrayList<>();
+    private final Map<Integer, List<Pending>> pendingBySlot = new LinkedHashMap<>();
     private int[] cumulativeShift = new int[0];
     private int frameTick;
     private boolean hidden;
@@ -78,7 +87,9 @@ public final class EmbedManager {
         if (matches == null || matches.isEmpty() || shuttingDown) return;
         if (!handledMessages.add(addedTime)) return;
         Path gameDir = Minecraft.getInstance().gameDirectory.toPath();
-        for (ResourceMatch match : matches) {
+        int links = capLinks(matches.size());
+        for (int i = 0; i < links; i++) {
+            ResourceMatch match = matches.get(i);
             int id = NEXT_ID.getAndIncrement();
             if (!reserved.add(id)) continue;
             String url = match.mediaUrl();
@@ -110,6 +121,10 @@ public final class EmbedManager {
                         return null;
                     });
         }
+    }
+
+    static int capLinks(int size) {
+        return Math.min(size, MAX_LINKS_PER_MESSAGE);
     }
 
     public void onLineOpacity(int addedTime, float opacity) {
@@ -155,13 +170,17 @@ public final class EmbedManager {
 
     static int[] buildCumulativeShift(int size, Map<Integer, Integer> reserveBySlot) {
         int[] cumulative = new int[size];
+        fillCumulativeShift(cumulative, size, reserveBySlot);
+        return cumulative;
+    }
+
+    static void fillCumulativeShift(int[] cumulative, int size, Map<Integer, Integer> reserveBySlot) {
         int running = 0;
         for (int i = 0; i < size; i++) {
             Integer reserve = reserveBySlot.get(i);
             if (reserve != null) running += Math.max(0, reserve);
             cumulative[i] = running;
         }
-        return cumulative;
     }
 
     // ponytail: opacity is whatever vanilla captured for this line; never re-derive from ticks.
@@ -179,17 +198,21 @@ public final class EmbedManager {
                         int linesPerPage, boolean hidden) {
         this.frameTick = currentTick;
         this.hidden = hidden;
-        cumulativeShift = new int[0];
-        pendingDraws = List.of();
+        Arrays.fill(cumulativeShift, 0);
+        pendingDraws.clear();
+        liveTimes.clear();
+        visibleTimes.clear();
+        firstLine.clear();
+        reserveBySlot.clear();
+        ordered.clear();
+        pendingBySlot.clear();
 
-        Set<Integer> liveTimes = new HashSet<>();
         for (GuiMessage message : allMessages) liveTimes.add(message.addedTime());
         handledMessages.removeIf(time -> !liveTimes.contains(time));
         // ponytail: chat lines without an embed also feed these maps every frame; prune by live
         // messages here so they cannot grow without bound.
         opacityByTime.keySet().removeIf(time -> !liveTimes.contains(time));
         lastSeenTickByAddedTime.keySet().removeIf(time -> !liveTimes.contains(time));
-        Set<Integer> visibleTimes = new HashSet<>();
         for (GuiMessage.Line line : trimmed) visibleTimes.add(line.addedTime());
 
         Iterator<Map.Entry<Integer, Embed>> it = activeEmbeds.entrySet().iterator();
@@ -197,6 +220,8 @@ public final class EmbedManager {
             Map.Entry<Integer, Embed> entry = it.next();
             Embed embed = entry.getValue();
             if (!liveTimes.contains(embed.addedTime)) {
+                // ponytail: decoded players stay for every message still in allMessages so scrolling
+                // back never re-decodes; vanilla's history bounds how many can exist.
                 closePlayer(embed);
                 opacityByTime.remove(embed.addedTime);
                 lastSeenTickByAddedTime.remove(embed.addedTime);
@@ -208,7 +233,6 @@ public final class EmbedManager {
         }
         if (hidden || activeEmbeds.isEmpty() || trimmed.isEmpty()) return;
 
-        Map<Integer, Integer> firstLine = new HashMap<>();
         for (int i = 0; i < trimmed.size(); i++) {
             firstLine.putIfAbsent(trimmed.get(i).addedTime(), i);
         }
@@ -218,11 +242,10 @@ public final class EmbedManager {
         int localWidth = Math.max(1, chatWidth);
         int bottomRowExclusive = Math.min(trimmed.size(), chatScrollbarPos + linesPerPage);
 
-        List<Map.Entry<Integer, Embed>> ordered = new ArrayList<>(activeEmbeds.entrySet());
+        ordered.addAll(activeEmbeds.entrySet());
         ordered.sort(Comparator.comparingInt((Map.Entry<Integer, Embed> e) -> e.getValue().addedTime).reversed()
                 .thenComparingInt(e -> e.getKey()));
 
-        Map<Integer, List<Pending>> pendingBySlot = new LinkedHashMap<>();
         int drawn = 0;
         for (Map.Entry<Integer, Embed> entry : ordered) {
             Embed embed = entry.getValue();
@@ -251,16 +274,15 @@ public final class EmbedManager {
         }
         if (pendingBySlot.isEmpty()) return;
 
-        Map<Integer, Integer> reserveBySlot = new HashMap<>();
         for (Map.Entry<Integer, List<Pending>> entry : pendingBySlot.entrySet()) {
             int total = 0;
             for (Pending p : entry.getValue()) total += p.reserve();
             reserveBySlot.put(entry.getKey(), total);
         }
         // Chat is bottom-anchored: reserving rows after a message lifts its line and every older line.
-        cumulativeShift = buildCumulativeShift(trimmed.size(), reserveBySlot);
+        if (cumulativeShift.length < trimmed.size()) cumulativeShift = new int[trimmed.size()];
+        fillCumulativeShift(cumulativeShift, trimmed.size(), reserveBySlot);
 
-        List<Draw> draws = new ArrayList<>();
         for (List<Pending> pendings : pendingBySlot.values()) {
             int before = 0;
             for (Pending p : pendings) {
@@ -271,11 +293,10 @@ public final class EmbedManager {
                 int gifX = (int) Math.round((4.0D + p.lineLocalX()) * p.scale());
                 int availWGui = Math.max(1, (int) Math.round(p.availWScreen() / p.guiScale()));
                 int gifW = drawWidth(p.player().getFrameWidth(), p.player().getFrameHeight(), gifH, availWGui);
-                draws.add(new Draw(p.player(), p.addedTime(), gifX, gifY, gifW, gifH));
+                pendingDraws.add(new Draw(p.player(), p.addedTime(), gifX, gifY, gifW, gifH));
                 before += p.reserve();
             }
         }
-        pendingDraws = draws;
     }
 
     public void draw(GuiGraphics graphics) {
@@ -299,8 +320,8 @@ public final class EmbedManager {
 
     public void closeAll() {
         shuttingDown = true;
-        pendingDraws = List.of();
-        cumulativeShift = new int[0];
+        pendingDraws.clear();
+        Arrays.fill(cumulativeShift, 0);
         opacityByTime.clear();
         lastSeenTickByAddedTime.clear();
         for (Embed embed : activeEmbeds.values()) closePlayer(embed);
