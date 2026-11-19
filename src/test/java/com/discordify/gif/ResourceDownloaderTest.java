@@ -74,7 +74,7 @@ class ResourceDownloaderTest {
     }
 
     @Test
-    void rejectsNonGifStatusAndContentType() {
+    void rejectsNonGifStatusAndContentType() throws IOException {
         assertThrows(IOException.class, () -> ResourceDownloader.validateResponse(200, "text/html"));
         assertThrows(IOException.class, () -> ResourceDownloader.validateResponse(404, "image/gif"));
         assertThrows(IOException.class,
