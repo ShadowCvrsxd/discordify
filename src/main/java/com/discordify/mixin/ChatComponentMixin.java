@@ -43,6 +43,10 @@ public abstract class ChatComponentMixin {
     // ponytail: focus is true only on the chat screen; HUD gameplay chat is unfocused by design.
     private boolean prevFocused;
 
+    public static boolean shouldKeepPending(boolean rangesEmpty, boolean hasPending) {
+        return rangesEmpty && hasPending;
+    }
+
     @ModifyVariable(method = "addMessage(Lnet/minecraft/network/chat/Component;)V",
             at = @At("HEAD"), argsOnly = true)
     private Component stripResourceSimple(Component message) {
@@ -59,7 +63,7 @@ public abstract class ChatComponentMixin {
         // ponytail: addMessage(Component) delegates to the signed overload, so this runs twice.
         // Pass two must not overwrite pass one's richer GIF+PAGE list with a PAGE-only list, but a
         // PAGE-only message still needs its list forwarded so the downloader can resolve share links.
-        if (ranges.isEmpty() && pendingMatches != null) return message;
+        if (shouldKeepPending(ranges.isEmpty(), pendingMatches != null)) return message;
         int firstStart = full.indexOf(matches.get(0).originalUrl());
         String firstToken = matches.get(0).originalUrl();
 

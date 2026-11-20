@@ -185,4 +185,28 @@ class ResourceDetectorTest {
         assertTrue(ResourceDetector.findGifUrl(message(
                 "https://giphy.com/gifs/ryomen-sukuna-pera01-key-visual-lYlQuCqzA1FejDGiRP")).isPresent());
     }
+
+    @Test
+    void pageForwardingIsBoundedToExtensionlessPathsAndKlipyShares() {
+        assertDropped("https://example.com/article.html");
+        assertDropped("https://example.com/index.php?id=1");
+        assertDropped("https://example.com/report.aspx");
+
+        assertForwarded("https://example.com/attachments/263187a6b0342d81fc96557d1cc053b3?ex=1&is=2&hm=3");
+        assertForwarded("https://klipy.com/gifs/hello-hi-662");
+
+        List<ResourceMatch> gif = ResourceDetector.findResources(message("https://example.com/assets/cat.gif"));
+        assertEquals(1, gif.size());
+        assertEquals(ResourceKind.GIF, gif.get(0).kind());
+    }
+
+    private static void assertDropped(String url) {
+        assertTrue(ResourceDetector.findResources(message(url)).isEmpty(), url);
+    }
+
+    private static void assertForwarded(String url) {
+        List<ResourceMatch> found = ResourceDetector.findResources(message(url));
+        assertEquals(1, found.size(), url);
+        assertEquals(ResourceKind.PAGE, found.get(0).kind(), url);
+    }
 }

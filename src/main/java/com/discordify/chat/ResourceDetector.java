@@ -117,8 +117,10 @@ public final class ResourceDetector {
         if (lower.endsWith(".gif")) return match(ResourceKind.GIF, url, url);
         if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg")
                 || lower.endsWith(".webp")) return match(ResourceKind.IMAGE, url, url);
-        // ponytail: any other https URL is a candidate; safeFetch + magic sniff decide if it is media.
-        return match(ResourceKind.PAGE, url, url);
+        // ponytail: only extension-less paths yield media via magic sniff / unfurl; a document
+        // extension (.html/.php) is not fetched. klipy shares are forwarded earlier via klipySlug().
+        if (!lastSegment(path).contains(".")) return match(ResourceKind.PAGE, url, url);
+        return Optional.empty();
     }
 
     // ponytail: pure slug extraction so JUnit can cover share pages without a network call.
