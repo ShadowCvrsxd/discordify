@@ -14,8 +14,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeMap;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.client.GuiMessage;
@@ -35,6 +33,7 @@ public final class EmbedManager {
     private static final Logger LOGGER = LoggerFactory.getLogger("Discordify");
     private static final AtomicInteger NEXT_ID = new AtomicInteger();
     private static final int MAX_VISIBLE_EMBEDS = 3;
+    private static final int MAX_DECODED_PLAYERS = 8;
     static final int MAX_LINKS_PER_MESSAGE = 5;
     // ponytail: height budget in chat lines; native size is kept whenever it fits under it.
     private static final int MAX_GIF_HEIGHT_LINES = 10;
@@ -48,14 +47,20 @@ public final class EmbedManager {
 
     private static final class Embed {
         final int addedTime;
-        final GifPlayer player;
+        final byte[] bytes;
+        final ResourceKind kind;
         final String prefix;
         final int urlWidth;
+        GifPlayer player;
+        boolean decodePending;
+        boolean decodeFailed;
+        long lastDrawnTick = Long.MIN_VALUE;
         int prefixWidth = -1;
 
-        Embed(int addedTime, GifPlayer player, String prefix, int urlWidth) {
+        Embed(int addedTime, byte[] bytes, ResourceKind kind, String prefix, int urlWidth) {
             this.addedTime = addedTime;
-            this.player = player;
+            this.bytes = bytes;
+            this.kind = kind;
             this.prefix = prefix;
             this.urlWidth = urlWidth;
         }
@@ -73,6 +78,7 @@ public final class EmbedManager {
     private final Set<Integer> visibleTimes = new HashSet<>();
     private final Map<Integer, Integer> firstLine = new HashMap<>();
     private final Map<Integer, Integer> reserveBySlot = new HashMap<>();
+    private final Map<Integer, Long> decodedTicks = new HashMap<>();
     private final List<Map.Entry<Integer, Embed>> ordered = new ArrayList<>();
     private final Map<Integer, List<Pending>> pendingBySlot = new LinkedHashMap<>();
     private int[] cumulativeShift = new int[0];
@@ -93,23 +99,18 @@ public final class EmbedManager {
             int id = NEXT_ID.getAndIncrement();
             if (!reserved.add(id)) continue;
             String url = match.mediaUrl();
+            // ponytail: keep bytes only. Decoding every download here is what turned 14 GIFs into ~1.7 GiB.
             downloader.download(match, gameDir)
-                    // ponytail: decode runs on the downloader's daemon pool, never on the render thread.
-                    .thenCompose(resolved -> resolved == null || resolved.bytes() == null
-                            ? CompletableFuture.<List<GifDecoder.Frame>>completedFuture(null)
-                            : downloader.decodeAsync(resolved.bytes(), resolved.kind()))
-                    .thenAccept(frames -> Minecraft.getInstance().execute(() -> {
+                    .thenAccept(resolved -> Minecraft.getInstance().execute(() -> {
                         if (shuttingDown) {
                             reserved.remove(id);
                             return;
                         }
                         try {
-                            if (frames != null && !frames.isEmpty()) {
-                                // ponytail: GifPlayer uploads a DynamicTexture, so construct it only here.
-                                activeEmbeds.put(id, new Embed(addedTime, new GifPlayer(frames), prefix, urlWidth));
+                            if (resolved != null && resolved.bytes() != null) {
+                                activeEmbeds.put(id,
+                                        new Embed(addedTime, resolved.bytes(), resolved.kind(), prefix, urlWidth));
                             }
-                        } catch (RuntimeException e) {
-                            LOGGER.debug("Discordify: could not create image player: {}", e.toString());
                         } finally {
                             reserved.remove(id);
                         }
@@ -193,11 +194,59 @@ public final class EmbedManager {
         return lastSeenTick != null && frameTick - lastSeenTick > STALE_LINE_TICKS;
     }
 
+    // ponytail: LRU by last drawn tick; List.sort is stable so equal ticks keep map iteration order.
+    static <K> List<K> evictionCandidates(Map<K, Long> lastDrawn, int limit) {
+        if (lastDrawn.size() <= limit) return List.of();
+        List<Map.Entry<K, Long>> entries = new ArrayList<>(lastDrawn.entrySet());
+        entries.sort(Map.Entry.comparingByValue());
+        int count = lastDrawn.size() - limit;
+        List<K> out = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) out.add(entries.get(i).getKey());
+        return out;
+    }
+
+    private void enforceDecodedCap() {
+        decodedTicks.clear();
+        for (Map.Entry<Integer, Embed> entry : activeEmbeds.entrySet()) {
+            Embed embed = entry.getValue();
+            if (embed.player != null) decodedTicks.put(entry.getKey(), embed.lastDrawnTick);
+        }
+        for (Integer id : evictionCandidates(decodedTicks, MAX_DECODED_PLAYERS)) {
+            Embed embed = activeEmbeds.get(id);
+            if (embed != null) dropPlayer(embed);
+        }
+    }
+
+    private void ensureDecoding(int id, Embed embed) {
+        if (embed.player != null || embed.decodePending || embed.decodeFailed || embed.bytes == null) return;
+        embed.decodePending = true;
+        byte[] bytes = embed.bytes;
+        ResourceKind kind = embed.kind;
+        // ponytail: decodeAsync runs on its own daemon pool; the completion only touches state on the render thread.
+        downloader.decodeAsync(bytes, kind).whenComplete((frames, error) ->
+                Minecraft.getInstance().execute(() -> {
+                    embed.decodePending = false;
+                    if (shuttingDown || !activeEmbeds.containsKey(id) || embed.player != null) return;
+                    if (error != null || frames == null || frames.isEmpty()) {
+                        embed.decodeFailed = true;
+                        return;
+                    }
+                    try {
+                        embed.player = new GifPlayer(frames);
+                        embed.lastDrawnTick = frameTick;
+                    } catch (RuntimeException e) {
+                        embed.decodeFailed = true;
+                        LOGGER.debug("Discordify: could not create image player: {}", e.toString());
+                    }
+                }));
+    }
+
     public void prepare(Font font, List<GuiMessage.Line> trimmed, List<GuiMessage> allMessages,
                         int currentTick, int lineHeight, double scale, int chatWidth, int chatScrollbarPos,
                         int linesPerPage, boolean hidden) {
         this.frameTick = currentTick;
         this.hidden = hidden;
+        enforceDecodedCap();
         Arrays.fill(cumulativeShift, 0);
         pendingDraws.clear();
         liveTimes.clear();
@@ -220,9 +269,8 @@ public final class EmbedManager {
             Map.Entry<Integer, Embed> entry = it.next();
             Embed embed = entry.getValue();
             if (!liveTimes.contains(embed.addedTime)) {
-                // ponytail: decoded players stay for every message still in allMessages so scrolling
-                // back never re-decodes; vanilla's history bounds how many can exist.
-                closePlayer(embed);
+                // ponytail: bytes stay cached, but the texture is released so history cannot leak.
+                dropPlayer(embed);
                 opacityByTime.remove(embed.addedTime);
                 lastSeenTickByAddedTime.remove(embed.addedTime);
                 it.remove();
@@ -260,8 +308,13 @@ public final class EmbedManager {
             int lineIndex = base + wrappedLines;
             if (lineIndex < chatScrollbarPos || lineIndex >= bottomRowExclusive) continue;
 
+            if (embed.player == null) {
+                ensureDecoding(entry.getKey(), embed);
+                continue;
+            }
             GifPlayer player = embed.player;
             if (drawn >= MAX_VISIBLE_EMBEDS) continue;
+            embed.lastDrawnTick = frameTick;
 
             int availWScreen = Math.max(1, (int) Math.round((localWidth - lineLocalX) * scale * guiScale));
             int reserve = reserveRows(player.getFrameWidth(), player.getFrameHeight(),
@@ -314,8 +367,12 @@ public final class EmbedManager {
         }
     }
 
-    private static void closePlayer(Embed embed) {
-        embed.player.close();
+    private static void dropPlayer(Embed embed) {
+        if (embed.player != null) {
+            embed.player.close();
+            embed.player = null;
+        }
+        embed.decodeFailed = false;
     }
 
     public void closeAll() {
@@ -324,7 +381,8 @@ public final class EmbedManager {
         Arrays.fill(cumulativeShift, 0);
         opacityByTime.clear();
         lastSeenTickByAddedTime.clear();
-        for (Embed embed : activeEmbeds.values()) closePlayer(embed);
+        decodedTicks.clear();
+        for (Embed embed : activeEmbeds.values()) dropPlayer(embed);
         activeEmbeds.clear();
         reserved.clear();
         handledMessages.clear();

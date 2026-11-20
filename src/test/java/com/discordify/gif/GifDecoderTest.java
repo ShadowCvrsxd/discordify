@@ -3,7 +3,6 @@ package com.discordify.gif;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
@@ -11,7 +10,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
@@ -41,10 +39,14 @@ class GifDecoderTest {
     }
 
     @Test
-    void emptyReaderIteratorThrows() throws IOException {
-        IOException error = assertThrows(IOException.class,
-                () -> GifDecoder.readFrames(Collections.emptyIterator(), threeFrameGif()));
-        assertTrue(error.getMessage().contains("No GIF ImageReader"));
+    void decodeLimitsRejectOversizedGifs() throws IOException {
+        byte[] gif = threeFrameGif();
+        assertThrows(IOException.class, () -> DhyanGifDecoder.read(gif,
+                new DhyanGifDecoder.DecodeLimits(512 * 512, 120, gif.length - 1)));
+        assertThrows(IOException.class, () -> DhyanGifDecoder.read(gif,
+                new DhyanGifDecoder.DecodeLimits(512 * 512, 2, 16 * 1024 * 1024)));
+        assertThrows(IOException.class, () -> DhyanGifDecoder.read(gif,
+                new DhyanGifDecoder.DecodeLimits(15, 120, 16 * 1024 * 1024)));
     }
 
     @Test

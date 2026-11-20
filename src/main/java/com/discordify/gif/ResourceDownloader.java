@@ -3,13 +3,15 @@ package com.discordify.gif;
 import com.discordify.chat.PageUnfurl;
 import com.discordify.chat.ResourceKind;
 import com.discordify.chat.ResourceMatch;
+import kr.devslab.ssrfguard.core.NetUtil;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.InetAddress;
-import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
@@ -17,6 +19,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
@@ -29,9 +32,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
-import javax.net.ssl.SSLParameters;
-import javax.net.ssl.SSLSocket;
-import javax.net.ssl.SSLSocketFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,6 +48,7 @@ public final class ResourceDownloader {
     private static final int MAX_TEXT_BYTES = 1024 * 1024;
     private static final int SNIFF_BYTES = 16;
     private static final int DOWNLOAD_THREADS = 4;
+    private static final int DECODE_THREADS = 2;
     private static final long REQUEST_TIMEOUT_MS = 10_000L;
     // ponytail: 10s killed ~1 MiB GIFs at 100 kB/s; body reads get 60s while connect/read stay 10s.
     private static final long FETCH_DEADLINE_NANOS = 60_000_000_000L;
@@ -58,7 +59,19 @@ public final class ResourceDownloader {
     // ponytail: catches 0x7f000001 / 2130706433 / 127.1 / 0177.0.0.1 without a full URL parser.
     private static final Pattern IP_LITERAL = Pattern.compile("^(?=.*[0-9])[0-9a-fA-FxX.]+$");
 
-    private final ExecutorService pool = Executors.newFixedThreadPool(DOWNLOAD_THREADS, daemonFactory());
+    private final ExecutorService pool = Executors.newFixedThreadPool(DOWNLOAD_THREADS, daemonFactory("resource"));
+    // ponytail: a heavy GIF decode must never queue behind a pending download.
+    private final ExecutorService decoderPool = Executors.newFixedThreadPool(DECODE_THREADS, daemonFactory("decode"));
+    // ponytail: redirects are revalidated by safeFetch, so OkHttp must not follow them itself.
+    private final OkHttpClient httpClient = new OkHttpClient.Builder()
+            .dns(ResourceDownloader::ssrfSafeDns)
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .retryOnConnectionFailure(false)
+            .connectTimeout(REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            .readTimeout(REQUEST_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            .callTimeout(FETCH_DEADLINE_NANOS, TimeUnit.NANOSECONDS)
+            .build();
     // ponytail: in-memory cooldown resets on reload; sufficient for a client mod
     private final Map<String, Long> lastFetchMs = new ConcurrentHashMap<>();
 
@@ -73,7 +86,7 @@ public final class ResourceDownloader {
             } catch (IOException e) {
                 throw new CompletionException(e);
             }
-        }, pool);
+        }, decoderPool);
     }
 
     public static String safeUrl(String url) {
@@ -121,6 +134,17 @@ public final class ResourceDownloader {
         }
         // ponytail: all addresses passed the check; pin this one for the whole connection (no rebinding).
         return addresses[0];
+    }
+
+    // ponytail: OkHttp connects to exactly this list, so validating here closes the DNS-rebinding gap.
+    static List<InetAddress> ssrfSafeDns(String hostname) throws UnknownHostException {
+        InetAddress[] addresses = InetAddress.getAllByName(hostname);
+        List<InetAddress> safe = new ArrayList<>(addresses.length);
+        for (InetAddress address : addresses) {
+            if (isPublic(address) && !NetUtil.isPrivateOrLocal(address)) safe.add(address);
+        }
+        if (safe.isEmpty()) throw new UnknownHostException("No public address for " + hostname);
+        return List.copyOf(safe);
     }
 
     static boolean isPublic(InetAddress address) {
@@ -258,15 +282,13 @@ public final class ResourceDownloader {
         lastFetchMs.put(normalizeUrl(url), System.currentTimeMillis());
     }
 
-    static SafeResponse safeFetch(String url, long deadline, int maxBytes) throws IOException, InterruptedException {
+    private SafeResponse safeFetch(String url, long deadline, int maxBytes) throws IOException, InterruptedException {
         String current = url;
         for (int hop = 0; hop <= MAX_REDIRECTS; hop++) {
             if (Thread.interrupted()) throw new InterruptedException();
             Validated validated = validateUrl(current);
-            long remaining = deadline - System.nanoTime();
-            if (remaining <= 0) throw new IOException("resource fetch timed out");
-            int timeoutMs = (int) Math.max(1L, Math.min(REQUEST_TIMEOUT_MS, TimeUnit.NANOSECONDS.toMillis(remaining)));
-            SafeResponse response = exchange(validated, timeoutMs, maxBytes, deadline);
+            if (deadline - System.nanoTime() <= 0) throw new IOException("resource fetch timed out");
+            SafeResponse response = exchange(validated, maxBytes, deadline);
             if (response.status() >= 300 && response.status() < 400) {
                 if (response.location() == null) throw new IOException("redirect without Location");
                 // ponytail: every hop re-runs parse/DNS/public checks; GET carries no Referer/Cookie,
@@ -279,72 +301,24 @@ public final class ResourceDownloader {
         throw new IOException("too many redirects");
     }
 
-    private static SafeResponse exchange(Validated v, int timeoutMs, int maxBytes, long deadline) throws IOException {
-        Socket plain = new Socket();
-        try {
-            plain.connect(new InetSocketAddress(v.pinned(), v.port()), timeoutMs);
-            plain.setSoTimeout(timeoutMs);
-            // ponytail: raw SSLSocket instead of HttpClient because HttpClient cannot pin the TCP
-            // destination while keeping the hostname for SNI + cert checks. Wrapping the connected
-            // socket with the original host does exactly that and closes the DNS-rebinding gap.
-            SSLSocket ssl = (SSLSocket) ((SSLSocketFactory) SSLSocketFactory.getDefault())
-                    .createSocket(plain, v.host(), v.port(), true);
-            try {
-                SSLParameters params = ssl.getSSLParameters();
-                params.setEndpointIdentificationAlgorithm("HTTPS");
-                ssl.setSSLParameters(params);
-                ssl.startHandshake();
-
-                String request = "GET " + v.target() + " HTTP/1.1\r\nHost: " + v.host()
-                        + (v.port() == 443 ? "" : ":" + v.port())
-                        + "\r\nAccept: */*\r\nConnection: close\r\n\r\n";
-                OutputStream out = ssl.getOutputStream();
-                out.write(request.getBytes(StandardCharsets.US_ASCII));
-                out.flush();
-
-                InputStream in = ssl.getInputStream();
-                String statusLine = readLine(in);
-                if (statusLine == null) throw new IOException("empty HTTP response");
-                int status = parseStatus(statusLine);
-                String contentType = null;
-                String location = null;
-                long contentLength = -1;
-                boolean chunked = false;
-                for (String line; (line = readLine(in)) != null && !line.isEmpty(); ) {
-                    int colon = line.indexOf(':');
-                    if (colon < 0) continue;
-                    String name = line.substring(0, colon).trim().toLowerCase(Locale.ROOT);
-                    String value = line.substring(colon + 1).trim();
-                    switch (name) {
-                        case "content-type" -> contentType = value;
-                        case "location" -> location = value;
-                        case "transfer-encoding" -> chunked = value.toLowerCase(Locale.ROOT).contains("chunked");
-                        case "content-length" -> {
-                            try {
-                                contentLength = Long.parseLong(value);
-                            } catch (NumberFormatException ignored) {
-                                // ponytail: ignore malformed length, the streaming cap still applies
-                            }
-                        }
-                        case "content-disposition" -> {
-                            if (value.toLowerCase(Locale.ROOT).contains("attachment")) {
-                                throw new IOException("resource served as attachment");
-                            }
-                        }
-                        default -> { }
-                    }
-                }
-                if (contentLength > maxBytes) throw new IOException("Resource exceeds cap (Content-Length)");
-                if (status >= 300 && status < 400) {
-                    return new SafeResponse(status, contentType, location, null, null);
-                }
-                byte[] body = readStreamedBody(in, chunked, contentLength, maxBytes, deadline);
-                return new SafeResponse(status, contentType, null, null, body);
-            } finally {
-                ssl.close();
+    private SafeResponse exchange(Validated v, int maxBytes, long deadline) throws IOException {
+        // ponytail: DNS pinning happens in ssrfSafeDns; OkHttp reuses that exact address list to connect.
+        String url = "https://" + v.host() + ":" + v.port() + v.target();
+        Request request = new Request.Builder().url(url).header("Accept", "*/*").build();
+        try (Response response = httpClient.newCall(request).execute()) {
+            String disposition = response.header("Content-Disposition");
+            if (disposition != null && disposition.toLowerCase(Locale.ROOT).contains("attachment")) {
+                throw new IOException("resource served as attachment");
             }
-        } finally {
-            plain.close();
+            int status = response.code();
+            String contentType = response.header("Content-Type");
+            if (status >= 300 && status < 400) {
+                return new SafeResponse(status, contentType, response.header("Location"), null, null);
+            }
+            ResponseBody body = response.body();
+            if (body == null) return new SafeResponse(status, contentType, null, null, null);
+            byte[] bytes = readStreamedBody(body.byteStream(), false, body.contentLength(), maxBytes, deadline);
+            return new SafeResponse(status, contentType, null, null, bytes);
         }
     }
 
@@ -360,16 +334,6 @@ public final class ResourceDownloader {
 
     private static String stripCr(String line) {
         return line.endsWith("\r") ? line.substring(0, line.length() - 1) : line;
-    }
-
-    private static int parseStatus(String statusLine) throws IOException {
-        String[] parts = statusLine.split(" ", 3);
-        if (parts.length < 2) throw new IOException("bad HTTP status line: " + statusLine);
-        try {
-            return Integer.parseInt(parts[1]);
-        } catch (NumberFormatException e) {
-            throw new IOException("bad HTTP status line: " + statusLine);
-        }
     }
 
     static String resolveRedirect(String current, String location) {
@@ -641,9 +605,9 @@ public final class ResourceDownloader {
         return "img";
     }
 
-    private static ThreadFactory daemonFactory() {
+    private static ThreadFactory daemonFactory(String name) {
         return runnable -> {
-            Thread thread = new Thread(runnable, "discordify-resource-download");
+            Thread thread = new Thread(runnable, "discordify-" + name);
             thread.setDaemon(true);
             return thread;
         };

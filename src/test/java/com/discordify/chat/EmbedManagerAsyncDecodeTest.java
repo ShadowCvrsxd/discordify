@@ -21,5 +21,13 @@ class EmbedManagerAsyncDecodeTest {
         assertTrue(src.contains("decodeAsync("), "decode must be dispatched off-thread");
         assertTrue(src.indexOf("new GifPlayer(") > src.indexOf("Minecraft.getInstance().execute"),
                 "GifPlayer must be built inside the render-thread execute");
+        assertTrue(src.contains("byte[] bytes"), "downloaded bytes must be kept for lazy decode");
+        int start = src.indexOf("public void onMessage");
+        int end = src.indexOf("static int capLinks");
+        assertFalse(src.substring(start, end).contains("decodeAsync("),
+                "onMessage must not decode every downloaded resource");
+        int prepare = src.indexOf("public void prepare(");
+        assertTrue(src.substring(prepare, src.indexOf("public void draw(")).contains("ensureDecoding("),
+                "decode must be triggered from prepare() only");
     }
 }

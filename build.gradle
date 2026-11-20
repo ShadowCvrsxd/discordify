@@ -24,6 +24,17 @@ dependencies {
     modImplementation "net.fabricmc:fabric-loader:0.18.1"
     modImplementation "net.fabricmc.fabric-api:fabric-api:0.141.6+1.21.11"
 
+    // ponytail: OkHttp replaces the hand-rolled TLS/HTTP parser; `include` embeds runtime jars in the mod.
+    include(implementation("com.squareup.okhttp3:okhttp:4.12.0"))
+    include(implementation("com.squareup.okio:okio:3.6.0"))
+    include(implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.21"))
+    include(implementation("org.jetbrains.kotlin:kotlin-stdlib:1.8.21"))
+    include(implementation("org.jetbrains.kotlin:kotlin-stdlib-common:1.8.21"))
+    include(implementation("org.jetbrains:annotations:13.0"))
+    include(implementation("kr.devslab:ssrf-guard-core:3.3.0") {
+        exclude group: "org.springframework.boot"
+    })
+
     testImplementation "org.junit.jupiter:junit-jupiter:5.11.4"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher:1.11.4"
 }
