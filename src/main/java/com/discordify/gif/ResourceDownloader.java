@@ -38,7 +38,7 @@ import org.slf4j.LoggerFactory;
 public final class ResourceDownloader {
     public record Resolved(byte[] bytes, ResourceKind kind, String extension) {}
     record Parsed(String host, int port, String target) {}
-    record Validated(String host, int port, String target, InetAddress pinned) {}
+    record Validated(String host, int port, String target) {}
     record SafeResponse(int status, String contentType, String location, String finalUrl, byte[] body) {}
 
     private static final Logger LOGGER = LoggerFactory.getLogger("Discordify");
@@ -124,19 +124,19 @@ public final class ResourceDownloader {
         } catch (UnknownHostException e) {
             throw reject(url, "DNS resolution failed");
         }
-        return new Validated(parsed.host(), parsed.port(), parsed.target(), pinAddress(addresses));
+        validateAddresses(addresses);
+        return new Validated(parsed.host(), parsed.port(), parsed.target());
     }
 
-    static InetAddress pinAddress(InetAddress[] addresses) throws IOException {
+    static void validateAddresses(InetAddress[] addresses) throws IOException {
         if (addresses == null || addresses.length == 0) throw new IOException("no DNS addresses");
         for (InetAddress address : addresses) {
             if (!isPublic(address)) throw new IOException("resolved address is not public");
         }
-        // ponytail: all addresses passed the check; pin this one for the whole connection (no rebinding).
-        return addresses[0];
     }
 
-    // ponytail: OkHttp connects to exactly this list, so validating here closes the DNS-rebinding gap.
+    // ponytail: single SSRF enforcement point. OkHttp resolves through this Dns on every hop,
+    // so the filtered public addresses are the ones it actually connects to.
     static List<InetAddress> ssrfSafeDns(String hostname) throws UnknownHostException {
         InetAddress[] addresses = InetAddress.getAllByName(hostname);
         List<InetAddress> safe = new ArrayList<>(addresses.length);
@@ -302,7 +302,7 @@ public final class ResourceDownloader {
     }
 
     private SafeResponse exchange(Validated v, int maxBytes, long deadline) throws IOException {
-        // ponytail: DNS pinning happens in ssrfSafeDns; OkHttp reuses that exact address list to connect.
+        // ponytail: ssrfSafeDns is the single SSRF gate; safeFetch revalidates every redirect hop.
         String url = "https://" + v.host() + ":" + v.port() + v.target();
         Request request = new Request.Builder().url(url).header("Accept", "*/*").build();
         try (Response response = httpClient.newCall(request).execute()) {

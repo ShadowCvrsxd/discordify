@@ -106,6 +106,5 @@ public final class GifPlayer implements AutoCloseable {
         if (closed) return;
         closed = true;
         tm.release(id);
-        texture.close();
     }
 }

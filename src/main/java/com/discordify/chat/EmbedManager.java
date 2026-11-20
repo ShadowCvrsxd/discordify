@@ -209,6 +209,14 @@ public final class EmbedManager {
         return prevFocused && !focused;
     }
 
+    public static boolean justOpened(boolean prevFocused, boolean focused) {
+        return !prevFocused && focused;
+    }
+
+    public void clearHideLatch() {
+        hideUntilMs = 0;
+    }
+
     // ponytail: LRU by last drawn tick; List.sort is stable so equal ticks keep map iteration order.
     static <K> List<K> evictionCandidates(Map<K, Long> lastDrawn, int limit) {
         if (lastDrawn.size() <= limit) return List.of();
@@ -332,12 +340,13 @@ public final class EmbedManager {
             int lineIndex = base + wrappedLines;
             if (lineIndex < chatScrollbarPos || lineIndex >= bottomRowExclusive) continue;
 
+            if (drawn >= MAX_VISIBLE_EMBEDS) break;
+            drawn++;
             if (embed.player == null) {
                 ensureDecoding(entry.getKey(), embed);
                 continue;
             }
             GifPlayer player = embed.player;
-            if (drawn >= MAX_VISIBLE_EMBEDS) continue;
             embed.lastDrawnTick = frameTick;
 
             int availWScreen = Math.max(1, (int) Math.round(localWidth * scale * guiScale));
@@ -347,7 +356,6 @@ public final class EmbedManager {
             pendingBySlot.computeIfAbsent(slot, key -> new ArrayList<>()).add(
                     new Pending(embed.addedTime, player, lineLocalX, availWScreen, reserve,
                             slot, lineHeight, chatBottomLocal, scale, guiScale));
-            drawn++;
         }
         if (pendingBySlot.isEmpty()) return;
 

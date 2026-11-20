@@ -172,13 +172,12 @@ class ResourceDownloaderTest {
     }
 
     @Test
-    void pinAddressRejectsIfAnyResolvedAddressIsPrivate() throws IOException {
+    void validateAddressesRejectsIfAnyResolvedAddressIsPrivate() {
         InetAddress good = InetAddress.getByName("8.8.8.8");
-        assertEquals(good, ResourceDownloader.pinAddress(
-                new InetAddress[]{good, InetAddress.getByName("1.1.1.1")}));
-        assertThrows(IOException.class, () -> ResourceDownloader.pinAddress(
+        ResourceDownloader.validateAddresses(new InetAddress[]{good, InetAddress.getByName("1.1.1.1")});
+        assertThrows(IOException.class, () -> ResourceDownloader.validateAddresses(
                 new InetAddress[]{good, InetAddress.getByName("127.0.0.1")}));
-        assertThrows(IOException.class, () -> ResourceDownloader.pinAddress(new InetAddress[0]));
+        assertThrows(IOException.class, () -> ResourceDownloader.validateAddresses(new InetAddress[0]));
     }
 
     @Test

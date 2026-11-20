@@ -114,4 +114,12 @@ class EmbedManagerLayoutTest {
         assertFalse(EmbedManager.justClosed(true, true));
         assertTrue(EmbedManager.justClosed(true, false));
     }
+
+    @Test
+    void chatJustOpenedOnlyOnRefocusEdge() {
+        assertFalse(EmbedManager.justOpened(false, false));
+        assertTrue(EmbedManager.justOpened(false, true));
+        assertFalse(EmbedManager.justOpened(true, true));
+        assertFalse(EmbedManager.justOpened(true, false));
+    }
 }

@@ -128,6 +128,9 @@ public abstract class ChatComponentMixin {
     private void onRenderPrepare(GuiGraphics graphics, Font font, int currentTick, int mouseX, int mouseY,
                                  boolean focused, boolean changeCursorOnInsertions, CallbackInfo ci) {
         boolean chatJustClosed = EmbedManager.justClosed(this.prevFocused, focused);
+        if (EmbedManager.justOpened(this.prevFocused, focused)) {
+            EmbedManager.INSTANCE.clearHideLatch();
+        }
         this.prevFocused = focused;
         EmbedManager.INSTANCE.prepare(font, this.trimmedMessages, this.allMessages,
                 currentTick, this.getLineHeight(), this.getScale(), this.getWidth(), this.chatScrollbarPos,
