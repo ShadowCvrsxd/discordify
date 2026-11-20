@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
 import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
@@ -52,6 +53,18 @@ class GifDecoderTest {
     @Test
     void rejectsNonGifMagic() {
         assertThrows(IOException.class, () -> GifDecoder.decode("NOT-A-GIF".getBytes(StandardCharsets.US_ASCII)));
+    }
+
+    @Test
+    void decodesWebpFirstFrameBeyondGifCap() throws IOException {
+        byte[] webp = Base64.getDecoder().decode(
+                "UklGRjIAAABXRUJQVlA4TCYAAAAvV0KiAAdQs840s/8BAEX6/58i+p/63//+97///e9///vf//6/Ew==");
+        List<GifDecoder.Frame> frames = GifDecoder.decodeStatic(webp);
+        assertEquals(1, frames.size());
+        assertEquals(600, frames.get(0).image().getWidth());
+        assertEquals(650, frames.get(0).image().getHeight());
+        assertEquals(0xFF336699, frames.get(0).image().getRGB(300, 300));
+        assertEquals(0, frames.get(0).delayMs());
     }
 
     @Test

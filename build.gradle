@@ -35,6 +35,10 @@ dependencies {
         exclude group: "org.springframework.boot"
     })
 
+    // ponytail: ImageIO plugin for signed CDN URLs that serve static WebP despite a .gif path.
+    // Animated WebP is out of scope here; this plugin decodes static frames only.
+    include(implementation("org.sejda.imageio:webp-imageio:0.1.6"))
+
     testImplementation "org.junit.jupiter:junit-jupiter:5.11.4"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher:1.11.4"
 }
