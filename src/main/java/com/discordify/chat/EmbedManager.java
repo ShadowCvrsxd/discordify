@@ -213,6 +213,10 @@ public final class EmbedManager {
         return !prevFocused && focused;
     }
 
+    public static boolean shouldKeepPending(boolean rangesEmpty, boolean hasPending) {
+        return rangesEmpty && hasPending;
+    }
+
     public void clearHideLatch() {
         hideUntilMs = 0;
     }
