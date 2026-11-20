@@ -39,6 +39,9 @@ public final class EmbedManager {
     private static final int MAX_GIF_HEIGHT_LINES = 10;
     // ponytail: ~0.1s at 20 ticks/s; vanilla stops calling accept for a fully faded line.
     static final int STALE_LINE_TICKS = 2;
+    // ponytail: one frame is too short to see on a 60fps client; hide briefly after ESC, then
+    // resume HUD rendering so newly posted GIFs still show while chat stays unfocused.
+    static final long CHAT_CLOSE_HIDE_MS = 1500L;
 
     private record Draw(GifPlayer player, int addedTime, int x, int y, int w, int h) {}
 
@@ -83,6 +86,7 @@ public final class EmbedManager {
     private final Map<Integer, List<Pending>> pendingBySlot = new LinkedHashMap<>();
     private int[] cumulativeShift = new int[0];
     private int frameTick;
+    private long hideUntilMs;
     private boolean hidden;
     private boolean shuttingDown;
 
@@ -256,8 +260,10 @@ public final class EmbedManager {
                         int currentTick, int lineHeight, double scale, int chatWidth, int chatScrollbarPos,
                         int linesPerPage, boolean hidden, boolean chatJustClosed) {
         this.frameTick = currentTick;
-        // ponytail: recomputed every frame; a chat-close edge hides once, never latches.
-        boolean hideNow = hidden || chatJustClosed;
+        long now = Util.getMillis();
+        if (chatJustClosed) hideUntilMs = now + CHAT_CLOSE_HIDE_MS;
+        // ponytail: recomputed every frame; never keyed on sustained !focused.
+        boolean hideNow = hidden || now < hideUntilMs;
         this.hidden = hideNow;
         enforceDecodedCap();
         Arrays.fill(cumulativeShift, 0);
@@ -395,6 +401,7 @@ public final class EmbedManager {
 
     public void closeAll() {
         shuttingDown = true;
+        hideUntilMs = 0;
         pendingDraws.clear();
         Arrays.fill(cumulativeShift, 0);
         opacityByTime.clear();
