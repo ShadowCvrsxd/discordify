@@ -57,9 +57,9 @@ public abstract class ChatComponentMixin {
         String full = message.getString();
         List<int[]> ranges = ResourceDetector.stripRanges(matches, full);
         // ponytail: addMessage(Component) delegates to the signed overload, so this runs twice.
-        // Setting pending state only after a real media URL was stripped keeps pass one's GIF+PAGE
-        // list intact when pass two sees only the trusted PAGE URL (kept in chat by design).
-        if (ranges.isEmpty()) return message;
+        // Pass two must not overwrite pass one's richer GIF+PAGE list with a PAGE-only list, but a
+        // PAGE-only message still needs its list forwarded so the downloader can resolve share links.
+        if (ranges.isEmpty() && pendingMatches != null) return message;
         int firstStart = full.indexOf(matches.get(0).originalUrl());
         String firstToken = matches.get(0).originalUrl();
 
@@ -72,6 +72,7 @@ public abstract class ChatComponentMixin {
         pendingPrefix = full.substring(0, firstStart);
         pendingUrlWidth = font == null ? 0 : font.width(Component.literal(firstToken));
 
+        if (ranges.isEmpty()) return message;
         ranges.sort(Comparator.comparingInt(range -> range[0]));
         StringBuilder kept = new StringBuilder(full.length());
         int cursor = 0;
