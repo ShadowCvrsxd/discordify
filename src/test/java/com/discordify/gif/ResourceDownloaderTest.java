@@ -172,7 +172,7 @@ class ResourceDownloaderTest {
     }
 
     @Test
-    void validateAddressesRejectsIfAnyResolvedAddressIsPrivate() {
+    void validateAddressesRejectsIfAnyResolvedAddressIsPrivate() throws IOException {
         InetAddress good = InetAddress.getByName("8.8.8.8");
         ResourceDownloader.validateAddresses(new InetAddress[]{good, InetAddress.getByName("1.1.1.1")});
         assertThrows(IOException.class, () -> ResourceDownloader.validateAddresses(
