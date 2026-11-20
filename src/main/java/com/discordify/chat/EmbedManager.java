@@ -201,7 +201,7 @@ public final class EmbedManager {
     }
 
     // ponytail: only the focused->unfocused edge hides; sustained unfocused HUD chat must draw.
-    static boolean justClosed(boolean prevFocused, boolean focused) {
+    public static boolean justClosed(boolean prevFocused, boolean focused) {
         return prevFocused && !focused;
     }
 
