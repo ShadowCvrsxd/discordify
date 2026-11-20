@@ -81,6 +81,16 @@ class EmbedManagerLayoutTest {
     }
 
     @Test
+    void gifDrawsFlushUnderNicknameWhenRequested() {
+        int lineLocalX = 136;
+        assertEquals(4, EmbedManager.gifLeftX(lineLocalX, 1.0D, true));
+        assertEquals(8, EmbedManager.gifLeftX(lineLocalX, 2.0D, true));
+        assertEquals(4, EmbedManager.gifLeftX(0, 1.0D, true));
+        assertEquals(140, EmbedManager.gifLeftX(lineLocalX, 1.0D, false));
+        assertEquals(280, EmbedManager.gifLeftX(lineLocalX, 2.0D, false));
+    }
+
+    @Test
     void atMostFiveLinksPerMessage() {
         assertEquals(0, EmbedManager.capLinks(0));
         assertEquals(3, EmbedManager.capLinks(3));

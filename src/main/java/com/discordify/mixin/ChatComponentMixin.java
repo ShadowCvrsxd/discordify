@@ -127,7 +127,7 @@ public abstract class ChatComponentMixin {
                                  boolean focused, boolean changeCursorOnInsertions, CallbackInfo ci) {
         EmbedManager.INSTANCE.prepare(font, this.trimmedMessages, this.allMessages,
                 currentTick, this.getLineHeight(), this.getScale(), this.getWidth(), this.chatScrollbarPos,
-                this.getLinesPerPage(), this.isChatHidden());
+                this.getLinesPerPage(), this.isChatHidden() || !focused);
     }
 
     @Inject(method = "render(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/gui/Font;IIIZZ)V", at = @At("TAIL"))

@@ -163,6 +163,12 @@ public final class EmbedManager {
         return Math.max(1, Math.min(availW, (int) Math.round(frameW * (drawH / (double) frameH))));
     }
 
+    // ponytail: flush with the chat left margin (the `<` of the nickname), not the URL column.
+    static int gifLeftX(int lineLocalX, double scale, boolean flushLeft) {
+        return flushLeft ? (int) Math.round(4.0D * scale)
+                         : (int) Math.round((4.0D + lineLocalX) * scale);
+    }
+
     // ponytail: cumulativeShift is a shift, not a new slot; `beforeRows` accounts for earlier
     // embeds already placed at the same slot. Pure so the slot->coordinate math is testable.
     static int embedTopY(int slot, int cumulativeShift, int beforeRows, int lineHeight, int chatBottomLocal) {
@@ -316,7 +322,7 @@ public final class EmbedManager {
             if (drawn >= MAX_VISIBLE_EMBEDS) continue;
             embed.lastDrawnTick = frameTick;
 
-            int availWScreen = Math.max(1, (int) Math.round((localWidth - lineLocalX) * scale * guiScale));
+            int availWScreen = Math.max(1, (int) Math.round(localWidth * scale * guiScale));
             int reserve = reserveRows(player.getFrameWidth(), player.getFrameHeight(),
                     availWScreen, lineScreenHeight, MAX_GIF_HEIGHT_LINES);
             int slot = lineIndex - chatScrollbarPos;
@@ -343,7 +349,7 @@ public final class EmbedManager {
                         p.lineHeight(), p.chatBottomLocal());
                 int gifY = (int) Math.round(gifTopLocal * p.scale());
                 int gifH = Math.max(1, (int) Math.round(p.reserve() * p.lineHeight() * p.scale()));
-                int gifX = (int) Math.round((4.0D + p.lineLocalX()) * p.scale());
+                int gifX = gifLeftX(p.lineLocalX(), p.scale(), true);
                 int availWGui = Math.max(1, (int) Math.round(p.availWScreen() / p.guiScale()));
                 int gifW = drawWidth(p.player().getFrameWidth(), p.player().getFrameHeight(), gifH, availWGui);
                 pendingDraws.add(new Draw(p.player(), p.addedTime(), gifX, gifY, gifW, gifH));
