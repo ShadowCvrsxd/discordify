@@ -106,4 +106,12 @@ class EmbedManagerLayoutTest {
         assertFalse(EmbedManager.isStaleLine(102, lastSeen));
         assertTrue(EmbedManager.isStaleLine(103, lastSeen));
     }
+
+    @Test
+    void chatJustClosedOnlyOnFocusTransition() {
+        assertFalse(EmbedManager.justClosed(false, false));
+        assertFalse(EmbedManager.justClosed(false, true));
+        assertFalse(EmbedManager.justClosed(true, true));
+        assertTrue(EmbedManager.justClosed(true, false));
+    }
 }

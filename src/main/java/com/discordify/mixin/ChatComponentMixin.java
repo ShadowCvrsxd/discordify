@@ -40,6 +40,8 @@ public abstract class ChatComponentMixin {
     private List<ResourceMatch> pendingMatches;
     private String pendingPrefix;
     private int pendingUrlWidth;
+    // ponytail: focus is true only on the chat screen; HUD gameplay chat is unfocused by design.
+    private boolean prevFocused;
 
     @ModifyVariable(method = "addMessage(Lnet/minecraft/network/chat/Component;)V",
             at = @At("HEAD"), argsOnly = true)
@@ -125,9 +127,11 @@ public abstract class ChatComponentMixin {
     @Inject(method = "render(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/gui/Font;IIIZZ)V", at = @At("HEAD"))
     private void onRenderPrepare(GuiGraphics graphics, Font font, int currentTick, int mouseX, int mouseY,
                                  boolean focused, boolean changeCursorOnInsertions, CallbackInfo ci) {
+        boolean chatJustClosed = EmbedManager.justClosed(this.prevFocused, focused);
+        this.prevFocused = focused;
         EmbedManager.INSTANCE.prepare(font, this.trimmedMessages, this.allMessages,
                 currentTick, this.getLineHeight(), this.getScale(), this.getWidth(), this.chatScrollbarPos,
-                this.getLinesPerPage(), this.isChatHidden() || !focused);
+                this.getLinesPerPage(), this.isChatHidden(), chatJustClosed);
     }
 
     @Inject(method = "render(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/gui/Font;IIIZZ)V", at = @At("TAIL"))

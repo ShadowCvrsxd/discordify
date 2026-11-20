@@ -200,6 +200,11 @@ public final class EmbedManager {
         return lastSeenTick != null && frameTick - lastSeenTick > STALE_LINE_TICKS;
     }
 
+    // ponytail: only the focused->unfocused edge hides; sustained unfocused HUD chat must draw.
+    static boolean justClosed(boolean prevFocused, boolean focused) {
+        return prevFocused && !focused;
+    }
+
     // ponytail: LRU by last drawn tick; List.sort is stable so equal ticks keep map iteration order.
     static <K> List<K> evictionCandidates(Map<K, Long> lastDrawn, int limit) {
         if (lastDrawn.size() <= limit) return List.of();
@@ -249,9 +254,11 @@ public final class EmbedManager {
 
     public void prepare(Font font, List<GuiMessage.Line> trimmed, List<GuiMessage> allMessages,
                         int currentTick, int lineHeight, double scale, int chatWidth, int chatScrollbarPos,
-                        int linesPerPage, boolean hidden) {
+                        int linesPerPage, boolean hidden, boolean chatJustClosed) {
         this.frameTick = currentTick;
-        this.hidden = hidden;
+        // ponytail: recomputed every frame; a chat-close edge hides once, never latches.
+        boolean hideNow = hidden || chatJustClosed;
+        this.hidden = hideNow;
         enforceDecodedCap();
         Arrays.fill(cumulativeShift, 0);
         pendingDraws.clear();
@@ -280,12 +287,17 @@ public final class EmbedManager {
                 opacityByTime.remove(embed.addedTime);
                 lastSeenTickByAddedTime.remove(embed.addedTime);
                 it.remove();
-            } else if (hidden || !visibleTimes.contains(embed.addedTime)
+            } else if (hideNow || !visibleTimes.contains(embed.addedTime)
                     || isStaleLine(frameTick, lastSeenTickByAddedTime.get(embed.addedTime))) {
                 opacityByTime.put(embed.addedTime, 0.0F);
             }
         }
-        if (hidden || activeEmbeds.isEmpty() || trimmed.isEmpty()) return;
+        if (hideNow) {
+            opacityByTime.clear();
+            pendingDraws.clear();
+            return;
+        }
+        if (activeEmbeds.isEmpty() || trimmed.isEmpty()) return;
 
         for (int i = 0; i < trimmed.size(); i++) {
             firstLine.putIfAbsent(trimmed.get(i).addedTime(), i);
