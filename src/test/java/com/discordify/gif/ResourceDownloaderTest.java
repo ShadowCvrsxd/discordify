@@ -204,6 +204,41 @@ class ResourceDownloaderTest {
     }
 
     @Test
+    void extractsKlipyMediaUrlFromApiJson() {
+        String json = "{\"result\":true,\"data\":{\"data\":[{\"slug\":\"x\",\"file\":{"
+                + "\"hd\":{\"gif\":{\"url\":\"https://static.klipy.com/ii/1/x.gif\"}},"
+                + "\"sd\":{\"gif\":{\"url\":\"https://static.klipy.com/ii/1/x-sd.gif\"}}}}]}}";
+        assertEquals("https://static.klipy.com/ii/1/x.gif", ResourceDownloader.klipyMediaUrl(json));
+    }
+
+    @Test
+    void fallsBackFromGifToWebpToSd() {
+        String webp = "{\"result\":true,\"data\":{\"data\":[{\"file\":{"
+                + "\"hd\":{\"webp\":{\"url\":\"https://static.klipy.com/ii/2/x.webp\"}},"
+                + "\"sd\":{\"gif\":{\"url\":\"https://static.klipy.com/ii/2/x-sd.gif\"}}}}]}}";
+        assertEquals("https://static.klipy.com/ii/2/x.webp", ResourceDownloader.klipyMediaUrl(webp));
+        String sd = "{\"result\":true,\"data\":{\"data\":[{\"file\":{\"hd\":{},"
+                + "\"sd\":{\"gif\":{\"url\":\"https://static.klipy.com/ii/3/x.gif\"}}}}]}}";
+        assertEquals("https://static.klipy.com/ii/3/x.gif", ResourceDownloader.klipyMediaUrl(sd));
+    }
+
+    @Test
+    void klipyMediaUrlFailsOpenOnBadPayloads() {
+        assertNull(ResourceDownloader.klipyMediaUrl("{\"result\":false,\"data\":{\"data\":[]}}"));
+        assertNull(ResourceDownloader.klipyMediaUrl("{\"result\":true,\"data\":{\"data\":[]}}"));
+        assertNull(ResourceDownloader.klipyMediaUrl("not json"));
+        assertNull(ResourceDownloader.klipyMediaUrl(null));
+        assertNull(ResourceDownloader.klipyMediaUrl("{\"result\":true,\"data\":{\"data\":[{\"file\":{\"hd\":"
+                + "{\"gif\":{\"url\":\"http://static.klipy.com/x.gif\"}}}}]}}"));
+    }
+
+    @Test
+    void redactsKlipyApiUrlInLogs() {
+        assertEquals("https://api.klipy.com/<redacted>", ResourceDownloader.safeUrl(
+                "https://api.klipy.com/api/v1/some-test-key/gifs/items?slugs=x"));
+    }
+
+    @Test
     void readLineStripsCrSoBlankHeaderLineEndsHeaderBlock() throws IOException {
         ByteArrayInputStream in = new ByteArrayInputStream(
                 "Content-Type: image/gif\r\n\r\nGIF89a".getBytes(StandardCharsets.ISO_8859_1));

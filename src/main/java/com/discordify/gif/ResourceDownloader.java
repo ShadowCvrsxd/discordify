@@ -1,8 +1,12 @@
 package com.discordify.gif;
 
 import com.discordify.chat.PageUnfurl;
+import com.discordify.chat.ResourceDetector;
 import com.discordify.chat.ResourceKind;
 import com.discordify.chat.ResourceMatch;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import kr.devslab.ssrfguard.core.NetUtil;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -42,6 +46,7 @@ public final class ResourceDownloader {
     record SafeResponse(int status, String contentType, String location, String finalUrl, byte[] body) {}
 
     private static final Logger LOGGER = LoggerFactory.getLogger("Discordify");
+    private static final String KLIPY_KEY = "WNIuNaoVQ1oK6pSdNal9Ch17q6KQyUsVX28jAiJIbCP7yEvsCvWHFYcATiIAUjES";
     private static final int MAX_REDIRECTS = 5;
     private static final int MAX_GIF_BYTES = 8 * 1024 * 1024;
     private static final int MAX_IMAGE_BYTES = 16 * 1024 * 1024;
@@ -90,7 +95,10 @@ public final class ResourceDownloader {
     }
 
     public static String safeUrl(String url) {
-        return url == null ? "" : normalizeUrl(url);
+        if (url == null) return "";
+        // ponytail: keep the embedded client key out of debug logs on rejected API URLs.
+        if (url.startsWith("https://api.klipy.com/")) return "https://api.klipy.com/<redacted>";
+        return normalizeUrl(url);
     }
 
     static Parsed parseUrl(String url) throws IOException {
@@ -225,6 +233,8 @@ public final class ResourceDownloader {
     }
 
     private Resolved resolveCandidate(String url, Path gameDir, long deadline) throws IOException, InterruptedException {
+        String slug = ResourceDetector.klipySlug(url);
+        if (slug != null) return resolveKlipyShare(url, slug, gameDir, deadline);
         byte[] cached = readCache(gameDir, url);
         if (cached != null) {
             ResourceKind cachedKind = sniffKind(cached);
@@ -269,6 +279,63 @@ public final class ResourceDownloader {
         writeCache(gameDir, mediaUrl, extensionFor(media.body()), media.body());
         markFetched(url);
         return new Resolved(media.body(), mediaKind, extensionFor(media.body()));
+    }
+
+    private Resolved resolveKlipyShare(String shareUrl, String slug, Path gameDir, long deadline)
+            throws InterruptedException {
+        String apiUrl = "https://api.klipy.com/api/v1/" + KLIPY_KEY + "/gifs/items?slugs=" + slug;
+        try {
+            SafeResponse api = safeFetch(apiUrl, deadline, MAX_TEXT_BYTES);
+            if (api.body() == null || api.status() < 200 || api.status() >= 300) {
+                LOGGER.debug("Discordify: klipy items API status {} for {}", api.status(), safeUrl(shareUrl));
+                return null;
+            }
+            String mediaUrl = klipyMediaUrl(new String(api.body(), StandardCharsets.UTF_8));
+            if (mediaUrl == null) {
+                LOGGER.debug("Discordify: no klipy media URL for {}", safeUrl(shareUrl));
+                return null;
+            }
+            return resolveCandidate(mediaUrl, gameDir, deadline);
+        } catch (IOException | RuntimeException e) {
+            LOGGER.debug("Discordify: failed to resolve klipy share {}: {}", safeUrl(shareUrl), e.toString());
+            return null;
+        }
+    }
+
+    // ponytail: pure Gson navigation so JUnit can cover the API shape without a network call.
+    static String klipyMediaUrl(String json) {
+        try {
+            JsonElement root = JsonParser.parseString(json);
+            JsonElement items = child(child(root, "data"), "data");
+            if (items == null || !items.isJsonArray()) return null;
+            JsonArray array = items.getAsJsonArray();
+            if (array.isEmpty()) return null;
+            JsonElement file = child(array.get(0), "file");
+            String url = absoluteHttps(child(child(child(file, "hd"), "gif"), "url"));
+            if (url == null) url = absoluteHttps(child(child(child(file, "hd"), "webp"), "url"));
+            if (url == null) url = absoluteHttps(child(child(child(file, "sd"), "gif"), "url"));
+            return url;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private static JsonElement child(JsonElement node, String name) {
+        return node != null && node.isJsonObject() ? node.getAsJsonObject().get(name) : null;
+    }
+
+    private static String absoluteHttps(JsonElement node) {
+        if (node == null || !node.isJsonPrimitive() || !node.getAsJsonPrimitive().isString()) return null;
+        String url = node.getAsString();
+        try {
+            URI uri = URI.create(url);
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null || uri.getHost().isEmpty()) {
+                return null;
+            }
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        return url;
     }
 
     private void checkCooldown(String url) throws IOException {

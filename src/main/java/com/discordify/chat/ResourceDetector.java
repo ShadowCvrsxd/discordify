@@ -1,5 +1,6 @@
 package com.discordify.chat;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -15,6 +16,7 @@ public final class ResourceDetector {
     private static final Pattern TRAILING_PUNCTUATION = Pattern.compile("[.,;:!?)\\]}'\"]+$");
     private static final Pattern TENOR = Pattern.compile("tenor\\.com/view/.*-gif-([A-Za-z0-9]{10,})");
     private static final Pattern GIPHY_TRAILING_ID = Pattern.compile("([A-Za-z0-9]{6,})$");
+    private static final Pattern KLIPY_PATH = Pattern.compile("/(?:gifs|clips)/([A-Za-z0-9_-]+)/?");
     // ponytail: these never render as an inline image in Minecraft chat - leave them as plain text.
     private static final Set<String> SKIP_EXTENSIONS = Set.of(
             ".mp4", ".webm", ".mov", ".pdf", ".zip", ".exe", ".avif");
@@ -85,6 +87,8 @@ public final class ResourceDetector {
         if (host.isEmpty() || host.charAt(0) == '[') return Optional.empty();
         host = host.toLowerCase(Locale.ROOT);
 
+        if (klipySlug(url) != null) return match(ResourceKind.PAGE, url, url);
+
         // Extension hints only drive text stripping and the initial download cap. The downloader
         // sniffs magic bytes and re-routes GIF/IMAGE/PAGE regardless of this hint.
         String path = rest.substring(authorityEnd);
@@ -115,6 +119,26 @@ public final class ResourceDetector {
                 || lower.endsWith(".webp")) return match(ResourceKind.IMAGE, url, url);
         // ponytail: any other https URL is a candidate; safeFetch + magic sniff decide if it is media.
         return match(ResourceKind.PAGE, url, url);
+    }
+
+    // ponytail: pure slug extraction so JUnit can cover share pages without a network call.
+    public static String klipySlug(String url) {
+        if (url == null) return null;
+        try {
+            URI uri = URI.create(url);
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getUserInfo() != null) return null;
+            String host = uri.getHost();
+            if (host == null) return null;
+            host = host.toLowerCase(Locale.ROOT);
+            if (!host.equals("klipy.com") && !host.equals("www.klipy.com")) return null;
+            if (uri.getPort() != -1 && uri.getPort() != 443) return null;
+            String path = uri.getPath();
+            if (path == null) return null;
+            Matcher matcher = KLIPY_PATH.matcher(path);
+            return matcher.matches() ? matcher.group(1) : null;
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private static Optional<ResourceMatch> match(ResourceKind kind, String mediaUrl, String originalUrl) {

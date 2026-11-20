@@ -1,6 +1,7 @@
 package com.discordify.chat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -150,6 +151,33 @@ class ResourceDetectorTest {
                 "(see https://i.imgur.com/frog.png)."));
         assertEquals(1, found.size());
         assertEquals("https://i.imgur.com/frog.png", found.get(0).originalUrl());
+    }
+
+    @Test
+    void extractsKlipyShareSlugs() {
+        assertEquals("hello-12345", ResourceDetector.klipySlug("https://klipy.com/gifs/hello-12345"));
+        assertEquals("funny_cat", ResourceDetector.klipySlug("https://www.klipy.com/clips/funny_cat/"));
+        assertEquals("abc123", ResourceDetector.klipySlug("https://klipy.com/gifs/abc123?utm=x#y"));
+    }
+
+    @Test
+    void rejectsNonKlipyShareUrls() {
+        assertNull(ResourceDetector.klipySlug("https://klipy.com.evil.test/gifs/abc"));
+        assertNull(ResourceDetector.klipySlug("https://notklipy.com/gifs/abc"));
+        assertNull(ResourceDetector.klipySlug("http://klipy.com/gifs/abc"));
+        assertNull(ResourceDetector.klipySlug("https://klipy.com/videos/abc"));
+        assertNull(ResourceDetector.klipySlug("https://klipy.com/gifs/"));
+        assertNull(ResourceDetector.klipySlug(null));
+    }
+
+    @Test
+    void detectsKlipySharePageAsUnfurlCandidate() {
+        String url = "https://klipy.com/gifs/hello-12345";
+        List<ResourceMatch> found = ResourceDetector.findResources(message(url));
+        assertEquals(1, found.size());
+        assertEquals(ResourceKind.PAGE, found.get(0).kind());
+        assertEquals(url, found.get(0).mediaUrl());
+        assertEquals(url, found.get(0).originalUrl());
     }
 
     @Test
