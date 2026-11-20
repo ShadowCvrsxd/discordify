@@ -24,7 +24,7 @@ class AsyncDecodeTest {
         assertTrue(start > 0, "missing decodeAsync");
         String method = src.substring(start, src.indexOf("\n    }", start));
         assertTrue(method.contains("supplyAsync"), "decode must be submitted, not run inline");
-        assertTrue(method.contains("pool"), "decode must use the background pool");
+        assertTrue(method.contains("decoderPool"), "decode must use the dedicated decoder pool");
         assertTrue(method.contains("GifDecoder.decode"), "decodeAsync must call the decoder");
     }
 
