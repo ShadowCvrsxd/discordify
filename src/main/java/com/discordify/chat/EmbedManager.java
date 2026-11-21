@@ -149,6 +149,15 @@ public final class EmbedManager {
         return backgroundSpan(cumulativeShift, slot);
     }
 
+    // ponytail: pure geometry helper so CI JUnit can cover the fill Y math without a Minecraft client.
+    public static int[] backgroundFillY(int chatBottom, int entryHeight, int slot, int shift, int reserve) {
+        int shiftedSlot = slot + shift;
+        int y2 = chatBottom - shiftedSlot * entryHeight;
+        int y1 = y2 - entryHeight;
+        if (reserve > 0) y2 += reserve * entryHeight;
+        return new int[]{y1, y2};
+    }
+
     static int backgroundSpan(int[] cumulative, int slot) {
         if (slot < 0 || slot >= cumulative.length) return 0;
         return cumulative[slot] - (slot > 0 ? cumulative[slot - 1] : 0);

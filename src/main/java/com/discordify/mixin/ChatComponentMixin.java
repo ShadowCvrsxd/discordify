@@ -12,15 +12,16 @@ import net.minecraft.client.gui.components.ChatComponent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MessageSignature;
 import net.minecraft.client.GuiMessageTag;
-import net.minecraft.util.ARGB;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.ModifyArgs;
 import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.invoke.arg.Args;
 
-@Mixin(ChatComponent.class)
+@Mixin(value = ChatComponent.class, priority = 1001)
 public abstract class ChatComponentMixin {
     @Shadow private List<GuiMessage> allMessages;
     @Shadow private List<GuiMessage.Line> trimmedMessages;
@@ -98,20 +99,17 @@ public abstract class ChatComponentMixin {
         EmbedManager.INSTANCE.onMessage(matches, newest.addedTime(), prefix == null ? "" : prefix, urlWidth);
     }
 
-    // ponytail: vanilla's FIRST forEachLine pass draws one one-row highlight via this lambda.
-    // Shift it to follow the text AND stretch its lower edge over the rows the GIF reserved.
-    @Inject(method = "method_75802", at = @At("HEAD"), cancellable = true)
-    private static void drawChatBackground(int chatBottom, int entryHeight,
-                                           ChatComponent.ChatGraphicsAccess access, int width, float opacity,
-                                           GuiMessage.Line line, int slot, float textBackgroundOpacity,
-                                           CallbackInfo ci) {
-        int shiftedSlot = slot + EmbedManager.INSTANCE.shiftRowsForSlot(slot);
-        int y2 = chatBottom - shiftedSlot * entryHeight;
-        int y1 = y2 - entryHeight;
-        int reserve = EmbedManager.INSTANCE.backgroundSpanRows(slot);
-        if (reserve > 0) y2 += reserve * entryHeight;
-        access.fill(-4, y1, width + 8, y2, ARGB.black(textBackgroundOpacity * opacity));
-        ci.cancel();
+    // ponytail: cooperate with chat_heads' @ModifyArg(index=2) on x2 — shift only y1/y2 so both
+    // mods' edits to the same fill() call survive. Higher mixin priority runs this handler last.
+    @ModifyArgs(method = "method_75802", at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/client/gui/components/ChatComponent$ChatGraphicsAccess;fill(IIIII)V"), expect = 1)
+    private static void shiftBackground(Args args, int chatBottom, int entryHeight,
+                                        ChatComponent.ChatGraphicsAccess access, int width, float opacity,
+                                        GuiMessage.Line line, int slot, float textBackgroundOpacity) {
+        int[] y = EmbedManager.backgroundFillY(chatBottom, entryHeight, slot,
+                EmbedManager.INSTANCE.shiftRowsForSlot(slot), EmbedManager.INSTANCE.backgroundSpanRows(slot));
+        args.set(1, y[0]);
+        args.set(3, y[1]);
     }
 
     @Inject(method = "render(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/gui/Font;IIIZZ)V", at = @At("HEAD"))
