@@ -14,6 +14,7 @@ import net.minecraft.network.chat.ComponentContents;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.contents.PlainTextContents;
+import net.minecraft.network.chat.contents.TranslatableContents;
 
 public final class ResourceDetector {
     private static final int MAX_LINKS = 5;
@@ -77,11 +78,19 @@ public final class ResourceDetector {
     public static Component stripStyled(Component message, List<int[]> ranges) {
         if (message == null || ranges == null || ranges.isEmpty()) return message;
         List<int[]> merged = mergeRanges(ranges);
-        Component result = stripNode(message, merged, new int[]{0});
+        String full = message.getString();
+        List<String> removals = new ArrayList<>();
+        for (int[] range : merged) {
+            if (range[1] > range[0] && range[1] <= full.length()) {
+                removals.add(full.substring(range[0], range[1]));
+            }
+        }
+        Component result = stripNode(message, merged, new int[]{0}, removals);
         return result == null ? Component.literal("") : result;
     }
 
-    private static Component stripNode(Component node, List<int[]> ranges, int[] cursor) {
+    private static Component stripNode(Component node, List<int[]> ranges, int[] cursor,
+                                       List<String> removals) {
         int start = cursor[0];
         int length = node.getString().length();
         int end = start + length;
@@ -103,14 +112,44 @@ public final class ResourceDetector {
         if (contents instanceof PlainTextContents plain) {
             appendKept(rebuilt, plain.text(), node.getStyle(), start, ranges);
         } else if (ownEnd > start && !fullyCovered(start, ownEnd, ranges)) {
-            rebuilt.append(MutableComponent.create(contents).setStyle(node.getStyle()));
+            ComponentContents kept = contents;
+            if (contents instanceof TranslatableContents translatable) {
+                kept = stripTranslatableArgs(translatable, removals);
+            }
+            rebuilt.append(MutableComponent.create(kept).setStyle(node.getStyle()));
         }
         cursor[0] = ownEnd;
         for (Component sibling : node.getSiblings()) {
-            Component kept = stripNode(sibling, ranges, cursor);
+            Component kept = stripNode(sibling, ranges, cursor, removals);
             if (kept != null) rebuilt.append(kept);
         }
         return rebuilt;
+    }
+
+    // ponytail: normal player chat is a TranslatableContents; its URL lives in an arg Component,
+    // not in a sibling. Strip only args that contain a whole URL string; split URLs stay visible.
+    private static ComponentContents stripTranslatableArgs(TranslatableContents contents,
+                                                            List<String> removals) {
+        Object[] args = contents.getArgs();
+        Object[] kept = new Object[args.length];
+        boolean changed = false;
+        for (int i = 0; i < args.length; i++) {
+            kept[i] = args[i];
+            if (!(args[i] instanceof Component arg)) continue;
+            List<int[]> local = new ArrayList<>();
+            String text = arg.getString();
+            for (String removal : removals) {
+                int at = text.indexOf(removal);
+                if (at >= 0) local.add(new int[]{at, at + removal.length()});
+            }
+            if (local.isEmpty()) continue;
+            Component stripped = stripNode(arg, local, new int[]{0}, removals);
+            kept[i] = stripped == null ? Component.literal("") : stripped;
+            changed = true;
+        }
+        return changed
+                ? new TranslatableContents(contents.getKey(), contents.getFallback(), kept)
+                : contents;
     }
 
     private static void appendKept(MutableComponent target, String text, Style style,

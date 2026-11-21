@@ -15,6 +15,7 @@ import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.HoverEvent;
 import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.contents.TranslatableContents;
 import org.junit.jupiter.api.Test;
 
 class ChatStylingTest {
@@ -116,6 +117,29 @@ class ChatStylingTest {
         assertEquals(literal.getStyle(), before.getStyle());
         assertEquals(literal.getStyle(), after.getStyle());
         assertNull(findByText(stripped, GIF));
+    }
+
+    @Test
+    void translatableChatMessageUrlIsStrippedButSenderStyleSurvives() {
+        Component sender = Component.literal("<Player> ").setStyle(playerStyle());
+        Component content = Component.literal(GIF).setStyle(Style.EMPTY.withColor(ChatFormatting.BLUE));
+        Component message = Component.translatable("chat.type.text", sender, content);
+
+        Component stripped = ResourceDetector.stripStyled(message, rangesFor(message));
+
+        assertFalse(stripped.getString().contains(GIF), "URL text in translatable arg must be removed");
+        assertTrue(stripped.getString().contains("<Player>"));
+        TranslatableContents contents = null;
+        for (Component sibling : stripped.getSiblings()) {
+            if (sibling.getContents() instanceof TranslatableContents translatable) {
+                contents = translatable;
+            }
+        }
+        assertNotNull(contents, "translatable component must survive");
+        Component keptSender = (Component) contents.getArgs()[0];
+        assertEquals(sender.getStyle(), keptSender.getStyle());
+        assertEquals("Player", keptSender.getStyle().getInsertion());
+        assertNotNull(keptSender.getStyle().getHoverEvent());
     }
 
     @Test
