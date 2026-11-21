@@ -3,7 +3,6 @@ package com.discordify.mixin;
 import com.discordify.chat.EmbedManager;
 import com.discordify.chat.ResourceDetector;
 import com.discordify.chat.ResourceMatch;
-import java.util.Comparator;
 import java.util.List;
 import net.minecraft.client.GuiMessage;
 import net.minecraft.client.Minecraft;
@@ -73,17 +72,7 @@ public abstract class ChatComponentMixin {
         pendingUrlWidth = font == null ? 0 : font.width(Component.literal(firstToken));
 
         if (ranges.isEmpty()) return message;
-        ranges.sort(Comparator.comparingInt(range -> range[0]));
-        StringBuilder kept = new StringBuilder(full.length());
-        int cursor = 0;
-        for (int[] range : ranges) {
-            if (range[0] < cursor) continue;
-            kept.append(full, cursor, range[0]);
-            cursor = range[1];
-        }
-        kept.append(full, cursor, full.length());
-        // ponytail: flattening drops per-sibling styles; only the removed URL spans matter here.
-        return Component.literal(kept.toString()).withStyle(message.getStyle());
+        return ResourceDetector.stripStyled(message, ranges);
     }
 
     @Inject(method = "addMessage(Lnet/minecraft/network/chat/Component;)V", at = @At("RETURN"))

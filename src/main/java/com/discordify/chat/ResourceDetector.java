@@ -2,6 +2,7 @@ package com.discordify.chat;
 
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -9,6 +10,10 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.ComponentContents;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.contents.PlainTextContents;
 
 public final class ResourceDetector {
     private static final int MAX_LINKS = 5;
@@ -65,6 +70,97 @@ public final class ResourceDetector {
             if (start >= 0) ranges.add(new int[]{start, start + raw.length()});
         }
         return ranges;
+    }
+
+    // ponytail: rebuild the component tree removing ONLY URL spans. A public static member on a
+    // @Mixin passes CI but throws InvalidMixinException at runtime (todo 17), so this lives here.
+    public static Component stripStyled(Component message, List<int[]> ranges) {
+        if (message == null || ranges == null || ranges.isEmpty()) return message;
+        List<int[]> merged = mergeRanges(ranges);
+        Component result = stripNode(message, merged, new int[]{0});
+        return result == null ? Component.literal("") : result;
+    }
+
+    private static Component stripNode(Component node, List<int[]> ranges, int[] cursor) {
+        int start = cursor[0];
+        int length = node.getString().length();
+        int end = start + length;
+        if (!overlapsAny(start, end, ranges)) {
+            cursor[0] = end;
+            return node;
+        }
+        if (fullyCovered(start, end, ranges)) {
+            cursor[0] = end;
+            return null;
+        }
+
+        int siblingsLength = 0;
+        for (Component sibling : node.getSiblings()) siblingsLength += sibling.getString().length();
+        int ownEnd = end - siblingsLength;
+
+        MutableComponent rebuilt = Component.literal("").setStyle(node.getStyle());
+        ComponentContents contents = node.getContents();
+        if (contents instanceof PlainTextContents plain) {
+            appendKept(rebuilt, plain.text(), node.getStyle(), start, ranges);
+        } else if (ownEnd > start && !fullyCovered(start, ownEnd, ranges)) {
+            rebuilt.append(MutableComponent.create(contents).setStyle(node.getStyle()));
+        }
+        cursor[0] = ownEnd;
+        for (Component sibling : node.getSiblings()) {
+            Component kept = stripNode(sibling, ranges, cursor);
+            if (kept != null) rebuilt.append(kept);
+        }
+        return rebuilt;
+    }
+
+    private static void appendKept(MutableComponent target, String text, Style style,
+                                   int globalStart, List<int[]> ranges) {
+        int textLength = text.length();
+        int local = 0;
+        for (int[] range : ranges) {
+            if (range[1] <= globalStart + local) continue;
+            if (range[0] >= globalStart + textLength) break;
+            int cutStart = Math.max(range[0], globalStart + local) - globalStart;
+            int cutEnd = Math.min(range[1], globalStart + textLength) - globalStart;
+            if (cutStart > local) {
+                target.append(Component.literal(text.substring(local, cutStart)).setStyle(style));
+            }
+            local = Math.max(local, cutEnd);
+            if (local >= textLength) break;
+        }
+        if (local < textLength) {
+            target.append(Component.literal(text.substring(local)).setStyle(style));
+        }
+    }
+
+    private static boolean overlapsAny(int start, int end, List<int[]> ranges) {
+        for (int[] range : ranges) {
+            if (range[0] < end && range[1] > start) return true;
+        }
+        return false;
+    }
+
+    private static boolean fullyCovered(int start, int end, List<int[]> ranges) {
+        for (int[] range : ranges) {
+            if (range[0] <= start && range[1] >= end) return true;
+        }
+        return false;
+    }
+
+    private static List<int[]> mergeRanges(List<int[]> ranges) {
+        List<int[]> sorted = new ArrayList<>();
+        for (int[] range : ranges) sorted.add(new int[]{range[0], range[1]});
+        sorted.sort(Comparator.comparingInt(range -> range[0]));
+        List<int[]> merged = new ArrayList<>();
+        for (int[] range : sorted) {
+            if (merged.isEmpty() || range[0] > merged.get(merged.size() - 1)[1]) {
+                merged.add(range);
+            } else {
+                int[] last = merged.get(merged.size() - 1);
+                last[1] = Math.max(last[1], range[1]);
+            }
+        }
+        return merged;
     }
 
     private static Optional<ResourceMatch> inspect(String url) {
