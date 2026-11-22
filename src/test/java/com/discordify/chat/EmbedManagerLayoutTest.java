@@ -5,6 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -121,5 +124,48 @@ class EmbedManagerLayoutTest {
         assertTrue(EmbedManager.justOpened(false, true));
         assertFalse(EmbedManager.justOpened(true, true));
         assertFalse(EmbedManager.justOpened(true, false));
+    }
+
+    @Test
+    void moddedChatBottomShiftsGifByExactlyTheInjectedDelta() {
+        int lineHeight = 10;
+        int vanillaBottom = 100;
+        int chatpatchesShift = 8;
+        int moddedBottom = vanillaBottom - chatpatchesShift;
+        int vanillaTop = EmbedManager.embedTopY(0, 0, 0, lineHeight, vanillaBottom);
+        int moddedTop = EmbedManager.embedTopY(0, 0, 0, lineHeight, moddedBottom);
+        assertEquals(100, vanillaTop);
+        assertEquals(92, moddedTop);
+        assertEquals(chatpatchesShift, vanillaTop - moddedTop);
+    }
+
+    @Test
+    void backgroundFillYUnchangedByModdedBottomWiring() {
+        assertArrayEquals(new int[] {90, 100}, EmbedManager.backgroundFillY(100, 10, 0, 0, 0));
+        assertArrayEquals(new int[] {70, 110}, EmbedManager.backgroundFillY(100, 10, 0, 2, 3));
+    }
+
+    // ponytail: pure helper can't see prepare()'s Minecraft bootstrap, so assert the wiring textually;
+    // fails if either the publish in shiftBackground or the override in prepare() is removed.
+    static boolean moddedBottomWired(String mixinSource, String managerSource) {
+        return mixinSource.contains("setChatBottomLocal(chatBottom)")
+                && managerSource.contains("moddedChatBottomLocal > 0 ? moddedChatBottomLocal");
+    }
+
+    @Test
+    void moddedBottomIsWiredThroughMixinAndPrepare() throws IOException {
+        String mixin = Files.readString(Path.of("src/main/java/com/discordify/mixin/ChatComponentMixin.java"));
+        String manager = Files.readString(Path.of("src/main/java/com/discordify/chat/EmbedManager.java"));
+        assertTrue(moddedBottomWired(mixin, manager));
+    }
+
+    @Test
+    void moddedBottomGuardRejectsMissingOverride() {
+        String mixin = "EmbedManager.INSTANCE.setChatBottomLocal(chatBottom);";
+        String manager = "int chatBottomLocal = moddedChatBottomLocal > 0 ? moddedChatBottomLocal : vanillaChatBottomLocal;";
+        assertTrue(moddedBottomWired(mixin, manager));
+        assertFalse(moddedBottomWired(mixin,
+                manager.replace("moddedChatBottomLocal > 0 ? moddedChatBottomLocal", "vanillaChatBottomLocal")));
+        assertFalse(moddedBottomWired(mixin.replace("setChatBottomLocal(chatBottom)", ""), manager));
     }
 }

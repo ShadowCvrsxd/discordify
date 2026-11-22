@@ -85,6 +85,9 @@ public final class EmbedManager {
     private final List<Map.Entry<Integer, Embed>> ordered = new ArrayList<>();
     private final Map<Integer, List<Pending>> pendingBySlot = new LinkedHashMap<>();
     private int[] cumulativeShift = new int[0];
+    // ponytail: previous frame's modded chatBottom from chatpatches; its shift is constant so a
+    // one-frame lag is invisible. 0 = no value yet (first frame/resize) -> fall back to vanilla.
+    private int moddedChatBottomLocal;
     private int frameTick;
     private long hideUntilMs;
     private boolean hidden;
@@ -230,6 +233,10 @@ public final class EmbedManager {
         hideUntilMs = 0;
     }
 
+    public void setChatBottomLocal(int value) {
+        this.moddedChatBottomLocal = value;
+    }
+
     // ponytail: LRU by last drawn tick; List.sort is stable so equal ticks keep map iteration order.
     static <K> List<K> evictionCandidates(Map<K, Long> lastDrawn, int limit) {
         if (lastDrawn.size() <= limit) return List.of();
@@ -331,7 +338,8 @@ public final class EmbedManager {
         }
         double guiScale = Minecraft.getInstance().getWindow().getGuiScale();
         int lineScreenHeight = Math.max(1, (int) Math.round(lineHeight * scale * guiScale));
-        int chatBottomLocal = (int) Math.floor((Minecraft.getInstance().getWindow().getGuiScaledHeight() - 40.0D) / scale);
+        int vanillaChatBottomLocal = (int) Math.floor((Minecraft.getInstance().getWindow().getGuiScaledHeight() - 40.0D) / scale);
+        int chatBottomLocal = moddedChatBottomLocal > 0 ? moddedChatBottomLocal : vanillaChatBottomLocal;
         int localWidth = Math.max(1, chatWidth);
         int bottomRowExclusive = Math.min(trimmed.size(), chatScrollbarPos + linesPerPage);
 
