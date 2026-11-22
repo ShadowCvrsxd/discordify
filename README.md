@@ -17,7 +17,7 @@ Drop `discordify-0.1.0-alpha.1.jar` into your `mods/` folder. No server-side ins
 
 - Direct image URLs: `.gif`, `.png`, `.jpg`, `.webp`.
 - Tenor and Giphy share links are rewritten to their media URLs.
-- KLIPY share pages (`klipy.com/gifs/<slug>`) resolve through the KLIPY items API. Provide your API key in `~/.config/discordify/klipy_key.txt` (the key is never printed or logged).
+- KLIPY share pages (klipy.com/gifs/<slug>) resolve through the KLIPY items API using a public client key embedded in this alpha build; no user configuration file is needed.
 - Signed Discord CDN URLs are supported, including links that serve a static WebP despite a `.gif` path.
 - A rendered GIF reserves honest chat rows and follows its message as the chat scrolls.
 - Embeds hide together with the chat (e.g. when chat is closed with Escape).
