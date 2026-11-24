@@ -95,7 +95,11 @@ public final class ResourceDetector {
         String full = live.getString();
         int at = full.indexOf(originalUrl);
         if (at < 0) return live;
-        return stripStyled(live, List.of(new int[]{at, at + originalUrl.length()}));
+        Component stripped = stripStyled(live, List.of(new int[]{at, at + originalUrl.length()}));
+        // ponytail: unwrap the empty rebuild root so a lone styled sibling keeps its own style
+        if (stripped.getContents() instanceof PlainTextContents plain && plain.text().isEmpty()
+                && stripped.getSiblings().size() == 1) return stripped.getSiblings().get(0);
+        return stripped;
     }
 
     private static Component stripNode(Component node, List<int[]> ranges, int[] cursor,
