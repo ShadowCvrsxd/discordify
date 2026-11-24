@@ -16,12 +16,18 @@ class ChatCompatibilityTest {
 
     // ponytail: pure string guard so in-process fixtures prove rejection without mutating product code.
     static boolean sourceGuard(String source) {
+        int drain = source.indexOf("drainHideRequests()");
+        int prepare = source.indexOf("EmbedManager.INSTANCE.prepare(");
         return source.contains("@ModifyArgs")
                 && source.contains("method_75802")
                 && source.contains("priority = 1001")
                 && !source.contains("cancellable = true")
                 && !source.contains("ci.cancel()")
-                && !source.contains("args.set(2");
+                && !source.contains("args.set(2")
+                && source.contains("drainHides()")
+                && source.contains("ResourceDetector.hideUrl")
+                && source.contains("@Shadow private void refreshTrimmedMessages()")
+                && drain >= 0 && prepare >= 0 && drain < prepare;
     }
 
     @Test
@@ -64,6 +70,12 @@ class ChatCompatibilityTest {
     }
 
     @Test
+    void sourceGuardRejectsMissingDrain() {
+        assertTrue(sourceGuard(validSource()));
+        assertFalse(sourceGuard(validSource().replace("drainHides()", "")));
+    }
+
+    @Test
     void mixinConfigHasNoMixinPriority() throws IOException {
         assertFalse(Files.readString(Path.of(MIXIN_CONFIG)).contains("mixinPriority"));
     }
@@ -71,6 +83,13 @@ class ChatCompatibilityTest {
     private static String validSource() {
         return "@ModifyArgs(method = \"method_75802\")\n"
                 + "@Mixin(value = ChatComponent.class, priority = 1001)\n"
-                + "args.set(1, y[0]);\nargs.set(3, y[1]);\n";
+                + "@Shadow private void refreshTrimmedMessages() { }\n"
+                + "args.set(1, y[0]);\nargs.set(3, y[1]);\n"
+                + "private void drainHideRequests() {\n"
+                + "    EmbedManager.INSTANCE.drainHides();\n"
+                + "    ResourceDetector.hideUrl(content, url);\n"
+                + "}\n"
+                + "this.drainHideRequests();\n"
+                + "EmbedManager.INSTANCE.prepare(font, trimmed, all, tick);\n";
     }
 }

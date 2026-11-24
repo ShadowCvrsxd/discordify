@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.client.GuiMessage;
 import net.minecraft.client.Minecraft;
@@ -48,6 +49,8 @@ public final class EmbedManager {
     private record Pending(int addedTime, GifPlayer player, int lineLocalX, int availWScreen, int reserve,
                            int slot, int lineHeight, int chatBottomLocal, double scale, double guiScale) {}
 
+    public record HideRequest(int addedTime, String originalUrl) {}
+
     private static final class Embed {
         final int addedTime;
         final byte[] bytes;
@@ -70,6 +73,7 @@ public final class EmbedManager {
     }
 
     private final LinkedHashMap<Integer, Embed> activeEmbeds = new LinkedHashMap<>();
+    private final ConcurrentLinkedQueue<HideRequest> pendingHides = new ConcurrentLinkedQueue<>();
     private final Set<Integer> reserved = ConcurrentHashMap.newKeySet();
     private final Set<Integer> handledMessages = ConcurrentHashMap.newKeySet();
     private final ResourceDownloader downloader = new ResourceDownloader();
@@ -117,6 +121,10 @@ public final class EmbedManager {
                             if (resolved != null && resolved.bytes() != null) {
                                 activeEmbeds.put(id,
                                         new Embed(addedTime, resolved.bytes(), resolved.kind(), prefix, urlWidth));
+                                if (match.kind() == ResourceKind.PAGE
+                                        && ResourceDetector.klipySlug(match.originalUrl()) != null) {
+                                    queueHide(addedTime, match.originalUrl());
+                                }
                             }
                         } finally {
                             reserved.remove(id);
@@ -129,6 +137,17 @@ public final class EmbedManager {
                         return null;
                     });
         }
+    }
+
+    public void queueHide(int addedTime, String originalUrl) {
+        pendingHides.add(new HideRequest(addedTime, originalUrl));
+    }
+
+    public List<HideRequest> drainHides() {
+        List<HideRequest> out = new ArrayList<>();
+        HideRequest r;
+        while ((r = pendingHides.poll()) != null) out.add(r);
+        return out;
     }
 
     static int capLinks(int size) {

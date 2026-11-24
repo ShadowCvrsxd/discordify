@@ -4,6 +4,7 @@ import com.discordify.chat.EmbedManager;
 import com.discordify.chat.ResourceDetector;
 import com.discordify.chat.ResourceMatch;
 import java.util.List;
+import java.util.ListIterator;
 import net.minecraft.client.GuiMessage;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -12,6 +13,8 @@ import net.minecraft.client.gui.components.ChatComponent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MessageSignature;
 import net.minecraft.client.GuiMessageTag;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -27,6 +30,8 @@ public abstract class ChatComponentMixin {
     @Shadow private List<GuiMessage.Line> trimmedMessages;
     @Shadow private int chatScrollbarPos;
 
+    @Shadow private void refreshTrimmedMessages() { }
+
     @Shadow private int getLineHeight() { return 0; }
 
     @Shadow private double getScale() { return 0; }
@@ -36,6 +41,8 @@ public abstract class ChatComponentMixin {
     @Shadow private int getWidth() { return 0; }
 
     @Shadow private boolean isChatHidden() { return false; }
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("Discordify");
 
     private List<ResourceMatch> pendingMatches;
     private String pendingPrefix;
@@ -115,9 +122,40 @@ public abstract class ChatComponentMixin {
         args.set(3, y[1]);
     }
 
+    private void drainHideRequests() {
+        boolean replaced = false;
+        for (EmbedManager.HideRequest request : EmbedManager.INSTANCE.drainHides()) {
+            int matches = 0;
+            ListIterator<GuiMessage> it = this.allMessages.listIterator();
+            while (it.hasNext()) {
+                GuiMessage m = it.next();
+                if (m.addedTime() == request.addedTime()
+                        && m.content().getString().contains(request.originalUrl())) matches++;
+            }
+            if (matches == 0) continue;
+            if (matches > 1) {
+                LOGGER.debug("Discordify: ambiguous klipy hide for tick {}", request.addedTime());
+                continue;
+            }
+            it = this.allMessages.listIterator();
+            while (it.hasNext()) {
+                GuiMessage m = it.next();
+                if (m.addedTime() == request.addedTime()
+                        && m.content().getString().contains(request.originalUrl())) {
+                    Component stripped = ResourceDetector.hideUrl(m.content(), request.originalUrl());
+                    it.set(new GuiMessage(m.addedTime(), stripped, m.signature(), m.tag()));
+                    replaced = true;
+                    break;
+                }
+            }
+        }
+        if (replaced) this.refreshTrimmedMessages();
+    }
+
     @Inject(method = "render(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/client/gui/Font;IIIZZ)V", at = @At("HEAD"))
     private void onRenderPrepare(GuiGraphics graphics, Font font, int currentTick, int mouseX, int mouseY,
                                  boolean focused, boolean changeCursorOnInsertions, CallbackInfo ci) {
+        this.drainHideRequests();
         boolean chatJustClosed = EmbedManager.justClosed(this.prevFocused, focused);
         if (EmbedManager.justOpened(this.prevFocused, focused)) {
             EmbedManager.INSTANCE.clearHideLatch();
