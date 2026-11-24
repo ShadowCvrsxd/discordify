@@ -89,6 +89,15 @@ public final class ResourceDetector {
         return result == null ? Component.literal("") : result;
     }
 
+    // ponytail: flat index, tree removal via stripStyled
+    public static Component hideUrl(Component live, String originalUrl) {
+        if (live == null || originalUrl == null || originalUrl.isEmpty()) return live;
+        String full = live.getString();
+        int at = full.indexOf(originalUrl);
+        if (at < 0) return live;
+        return stripStyled(live, List.of(new int[]{at, at + originalUrl.length()}));
+    }
+
     private static Component stripNode(Component node, List<int[]> ranges, int[] cursor,
                                        List<String> removals) {
         int start = cursor[0];
