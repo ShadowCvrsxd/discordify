@@ -133,9 +133,8 @@ public abstract class ChatComponentMixin {
                 if (m.addedTime() == request.addedTime()
                         && m.content().getString().contains(request.originalUrl())) matches++;
             }
-            if (matches == 0) continue;
-            if (matches > 1) {
-                LOGGER.debug("Discordify: ambiguous klipy hide for tick {}", request.addedTime());
+            if (!EmbedManager.shouldReplaceHideMatch(matches)) {
+                if (matches > 1) LOGGER.debug("Discordify: ambiguous klipy hide for tick {}", request.addedTime());
                 continue;
             }
             it = this.allMessages.listIterator();

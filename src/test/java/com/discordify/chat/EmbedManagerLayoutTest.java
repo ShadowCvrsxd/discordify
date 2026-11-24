@@ -40,6 +40,14 @@ class EmbedManagerLayoutTest {
         assertEquals(5, EmbedManager.reserveForViewport(10, 0, 6, 0));
         assertEquals(1, EmbedManager.reserveForViewport(10, 3, 6, 1));
         assertEquals(0, EmbedManager.reserveForViewport(10, 5, 6, 0));
+        assertEquals(0, EmbedManager.reserveForViewport(10, 6, 6, 0));
+    }
+
+    @Test
+    void shouldReplaceHideMatch_onlyUnique() {
+        assertFalse(EmbedManager.shouldReplaceHideMatch(0));
+        assertTrue(EmbedManager.shouldReplaceHideMatch(1));
+        assertFalse(EmbedManager.shouldReplaceHideMatch(2));
     }
 
     @Test

@@ -189,6 +189,11 @@ public final class EmbedManager {
         return available < 1 ? 0 : Math.min(reserve, available);
     }
 
+    // ponytail: pure predicate so the collision rule is testable without a client
+    public static boolean shouldReplaceHideMatch(int matchCount) {
+        return matchCount == 1;
+    }
+
     static int backgroundSpan(int[] cumulative, int slot) {
         if (slot < 0 || slot >= cumulative.length) return 0;
         return cumulative[slot] - (slot > 0 ? cumulative[slot - 1] : 0);

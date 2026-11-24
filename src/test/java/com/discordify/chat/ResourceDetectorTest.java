@@ -236,6 +236,16 @@ class ResourceDetectorTest {
     }
 
     @Test
+    void genericPageUrlStaysVisible() {
+        String url = "https://example.com/some/page";
+        Component message = Component.literal("look " + url);
+        List<ResourceMatch> found = ResourceDetector.findResources(message);
+        assertEquals(1, found.size());
+        assertEquals(ResourceKind.PAGE, found.get(0).kind());
+        assertTrue(ResourceDetector.stripRanges(found, message.getString()).isEmpty());
+    }
+
+    @Test
     void hideUrl_removesUrl() {
         Component message = Component.literal("prefix " + KLIPY_URL);
         Component result = ResourceDetector.hideUrl(message, KLIPY_URL);
