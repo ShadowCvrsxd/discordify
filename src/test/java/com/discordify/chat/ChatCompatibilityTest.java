@@ -32,18 +32,24 @@ class ChatCompatibilityTest {
 
     @Test
     void backgroundFillYNoShiftNoReserve() {
-        assertArrayEquals(new int[] {90, 100}, EmbedManager.backgroundFillY(100, 10, 0, 0, 0));
+        assertArrayEquals(new int[] {90, 100}, EmbedManager.backgroundFillY(100, 10, 0, 0, 0, false));
     }
 
     @Test
     void backgroundFillYWithShiftAndReserve() {
-        assertArrayEquals(new int[] {70, 110}, EmbedManager.backgroundFillY(100, 10, 0, 2, 3));
+        assertArrayEquals(new int[] {70, 110}, EmbedManager.backgroundFillY(100, 10, 0, 2, 3, false));
     }
 
     @Test
     void backgroundFillYNoAdditiveReserveWhenReserveZero() {
         // y2 = chatBottom - (slot+shift)*entryHeight, no additive reserve.
-        assertArrayEquals(new int[] {60, 70}, EmbedManager.backgroundFillY(100, 10, 1, 2, 0));
+        assertArrayEquals(new int[] {60, 70}, EmbedManager.backgroundFillY(100, 10, 1, 2, 0, false));
+    }
+
+    @Test
+    void backgroundFillY_leavesGapForNeighbor() {
+        // neighborBelow=true pulls y2 up one row: gap 350..360 against the newer strip {360,400}.
+        assertArrayEquals(new int[] {320, 350}, EmbedManager.backgroundFillY(400, 10, 1, 6, 3, true));
     }
 
     @Test

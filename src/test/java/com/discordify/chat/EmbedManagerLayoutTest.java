@@ -36,6 +36,13 @@ class EmbedManagerLayoutTest {
     }
 
     @Test
+    void reserveForViewport_calculatesCorrectly() {
+        assertEquals(5, EmbedManager.reserveForViewport(10, 0, 6, 0));
+        assertEquals(1, EmbedManager.reserveForViewport(10, 3, 6, 1));
+        assertEquals(0, EmbedManager.reserveForViewport(10, 5, 6, 0));
+    }
+
+    @Test
     void backgroundSpanRowsMatchesReservedSlotOnly() {
         int[] shift = EmbedManager.buildCumulativeShift(5, Map.of(1, 2, 3, 3));
         assertEquals(0, EmbedManager.backgroundSpan(shift, 0));
