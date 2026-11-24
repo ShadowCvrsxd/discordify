@@ -148,8 +148,8 @@ class EmbedManagerLayoutTest {
 
     @Test
     void backgroundFillYUnchangedByModdedBottomWiring() {
-        assertArrayEquals(new int[] {90, 100}, EmbedManager.backgroundFillY(100, 10, 0, 0, 0));
-        assertArrayEquals(new int[] {70, 110}, EmbedManager.backgroundFillY(100, 10, 0, 2, 3));
+        assertArrayEquals(new int[] {90, 100}, EmbedManager.backgroundFillY(100, 10, 0, 0, 0, false));
+        assertArrayEquals(new int[] {70, 110}, EmbedManager.backgroundFillY(100, 10, 0, 2, 3, false));
     }
 
     // ponytail: pure helper can't see prepare()'s Minecraft bootstrap, so assert the wiring textually;
@@ -174,5 +174,21 @@ class EmbedManagerLayoutTest {
         assertFalse(moddedBottomWired(mixin,
                 manager.replace("moddedChatBottomLocal > 0 ? moddedChatBottomLocal", "vanillaChatBottomLocal")));
         assertFalse(moddedBottomWired(mixin.replace("setChatBottomLocal(chatBottom)", ""), manager));
+    }
+
+    // ponytail: pure helpers can't see prepare()'s Minecraft bootstrap, so assert the clamp wiring
+    // textually; fails if the clamp, the Pending rebuild, or the visibility check is removed.
+    static boolean reserveClampWired(String managerSource) {
+        return managerSource.contains("reserveForViewport(")
+                && managerSource.contains("clampedBySlot")
+                && managerSource.contains("new Pending(")
+                && managerSource.contains("p.slot() + cumulativeShift[p.slot()] >= linesPerPage");
+    }
+
+    @Test
+    void reserveClampIsWired() throws IOException {
+        String manager = Files.readString(Path.of("src/main/java/com/discordify/chat/EmbedManager.java"));
+        assertTrue(reserveClampWired(manager));
+        assertFalse(reserveClampWired(manager.replace("reserveForViewport(", "")));
     }
 }

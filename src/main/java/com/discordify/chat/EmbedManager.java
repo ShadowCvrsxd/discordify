@@ -172,12 +172,21 @@ public final class EmbedManager {
     }
 
     // ponytail: pure geometry helper so CI JUnit can cover the fill Y math without a Minecraft client.
-    public static int[] backgroundFillY(int chatBottom, int entryHeight, int slot, int shift, int reserve) {
+    // neighborBelow pulls the bottom up one row so two GIF strips keep a one-row gap.
+    public static int[] backgroundFillY(int chatBottom, int entryHeight, int slot, int shift, int reserve,
+                                        boolean neighborBelow) {
         int shiftedSlot = slot + shift;
         int y2 = chatBottom - shiftedSlot * entryHeight;
         int y1 = y2 - entryHeight;
         if (reserve > 0) y2 += reserve * entryHeight;
+        if (neighborBelow && reserve > 0) y2 -= entryHeight;
         return new int[]{y1, y2};
+    }
+
+    public static int reserveForViewport(int reserve, int slot, int linesPerPage, int earlierReserved) {
+        int available = linesPerPage - 1 - slot - earlierReserved;
+        // ponytail: < 1 (not < 2) — the committed test defines available==1 as a valid one-row reserve.
+        return available < 1 ? 0 : Math.min(reserve, available);
     }
 
     static int backgroundSpan(int[] cumulative, int slot) {
@@ -399,10 +408,26 @@ public final class EmbedManager {
         }
         if (pendingBySlot.isEmpty()) return;
 
-        for (Map.Entry<Integer, List<Pending>> entry : pendingBySlot.entrySet()) {
+        // ponytail: clamp guarantees the sender row in this slot; older rows above may still scroll off
+        Map<Integer, Integer> clampedBySlot = new HashMap<>();
+        List<Integer> slots = new ArrayList<>(pendingBySlot.keySet());
+        slots.sort(Integer::compareTo);
+        for (int slot : slots) {
+            int earlierReserved = 0;
+            for (Map.Entry<Integer, Integer> e : clampedBySlot.entrySet()) {
+                if (e.getKey() < slot) earlierReserved += e.getValue();
+            }
+            List<Pending> clamped = new ArrayList<>();
+            for (Pending p : pendingBySlot.get(slot)) {
+                int reserve = reserveForViewport(p.reserve(), slot, linesPerPage, earlierReserved);
+                clamped.add(new Pending(p.addedTime(), p.player(), p.lineLocalX(), p.availWScreen(), reserve,
+                        p.slot(), p.lineHeight(), p.chatBottomLocal(), p.scale(), p.guiScale()));
+            }
             int total = 0;
-            for (Pending p : entry.getValue()) total += p.reserve();
-            reserveBySlot.put(entry.getKey(), total);
+            for (Pending p : clamped) total += p.reserve();
+            clampedBySlot.put(slot, total);
+            reserveBySlot.put(slot, total);
+            pendingBySlot.put(slot, clamped);
         }
         // Chat is bottom-anchored: reserving rows after a message lifts its line and every older line.
         if (cumulativeShift.length < trimmed.size()) cumulativeShift = new int[trimmed.size()];
@@ -411,6 +436,7 @@ public final class EmbedManager {
         for (List<Pending> pendings : pendingBySlot.values()) {
             int before = 0;
             for (Pending p : pendings) {
+                if (p.slot() + cumulativeShift[p.slot()] >= linesPerPage) continue;
                 int gifTopLocal = embedTopY(p.slot(), cumulativeShift[p.slot()], before,
                         p.lineHeight(), p.chatBottomLocal());
                 int gifY = (int) Math.round(gifTopLocal * p.scale());

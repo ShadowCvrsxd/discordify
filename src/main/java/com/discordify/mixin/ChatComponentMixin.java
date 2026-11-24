@@ -114,7 +114,8 @@ public abstract class ChatComponentMixin {
                                         ChatComponent.ChatGraphicsAccess access, int width, float opacity,
                                         GuiMessage.Line line, int slot, float textBackgroundOpacity) {
         int[] y = EmbedManager.backgroundFillY(chatBottom, entryHeight, slot,
-                EmbedManager.INSTANCE.shiftRowsForSlot(slot), EmbedManager.INSTANCE.backgroundSpanRows(slot));
+                EmbedManager.INSTANCE.shiftRowsForSlot(slot), EmbedManager.INSTANCE.backgroundSpanRows(slot),
+                EmbedManager.INSTANCE.backgroundSpanRows(slot - 1) > 0);
         // ponytail: publish the chatpatches-modded chatBottom so prepare() anchors the GIF to the
         // same bottom as the fill; one frame behind on the very first frame, then constant.
         EmbedManager.INSTANCE.setChatBottomLocal(chatBottom);
