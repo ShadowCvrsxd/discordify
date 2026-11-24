@@ -270,10 +270,13 @@ class ResourceDetectorTest {
         Component result = ResourceDetector.hideUrl(message, KLIPY_URL);
 
         assertFalse(result.getString().contains(KLIPY_URL));
-        TranslatableContents contents = null;
-        for (Component sibling : result.getSiblings()) {
-            if (sibling.getContents() instanceof TranslatableContents translatable) {
-                contents = translatable;
+        TranslatableContents contents = result.getContents() instanceof TranslatableContents root
+                ? root : null;
+        if (contents == null) {
+            for (Component sibling : result.getSiblings()) {
+                if (sibling.getContents() instanceof TranslatableContents translatable) {
+                    contents = translatable;
+                }
             }
         }
         assertNotNull(contents, "translatable component must survive");
