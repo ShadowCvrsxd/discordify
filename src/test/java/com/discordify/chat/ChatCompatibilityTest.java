@@ -16,7 +16,7 @@ class ChatCompatibilityTest {
 
     // ponytail: pure string guard so in-process fixtures prove rejection without mutating product code.
     static boolean sourceGuard(String source) {
-        int drain = source.indexOf("drainHideRequests()");
+        int drain = source.indexOf("this.drainHideRequests();");
         int prepare = source.indexOf("EmbedManager.INSTANCE.prepare(");
         return source.contains("@ModifyArgs")
                 && source.contains("method_75802")
@@ -73,6 +73,14 @@ class ChatCompatibilityTest {
     void sourceGuardRejectsMissingDrain() {
         assertTrue(sourceGuard(validSource()));
         assertFalse(sourceGuard(validSource().replace("drainHides()", "")));
+    }
+
+    @Test
+    void sourceGuardRejectsDrainAfterPrepare() {
+        String drainCall = "this.drainHideRequests();\n";
+        String prepareCall = "EmbedManager.INSTANCE.prepare(font, trimmed, all, tick);\n";
+        assertTrue(sourceGuard(validSource()));
+        assertFalse(sourceGuard(validSource().replace(drainCall + prepareCall, prepareCall + drainCall)));
     }
 
     @Test
