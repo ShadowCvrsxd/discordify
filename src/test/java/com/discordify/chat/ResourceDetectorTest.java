@@ -1,11 +1,17 @@
 package com.discordify.chat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.contents.TranslatableContents;
 import org.junit.jupiter.api.Test;
 
 class ResourceDetectorTest {
@@ -13,6 +19,7 @@ class ResourceDetectorTest {
             "https://cdn.discordapp.com/attachments/1228641110612643844/1490366458872729710/"
             + "263187a6b0342d81fc96557d1cc053b3.gif?ex=6b00616d&is=6aff0fed&"
             + "hm=2bd4da18ed7a1e73cd26bc29deb4d693361832d6b6dd92c770b09240f5cc5f7a&";
+    private static final String KLIPY_URL = "https://klipy.com/gifs/hello-12345";
 
     private static Component message(String text) {
         return Component.literal(text);
@@ -208,5 +215,68 @@ class ResourceDetectorTest {
         List<ResourceMatch> found = ResourceDetector.findResources(message(url));
         assertEquals(1, found.size(), url);
         assertEquals(ResourceKind.PAGE, found.get(0).kind(), url);
+    }
+
+    private static Component findByText(Component root, String text) {
+        if (root.getString().equals(text)) return root;
+        for (Component sibling : root.getSiblings()) {
+            Component found = findByText(sibling, text);
+            if (found != null) return found;
+        }
+        return null;
+    }
+
+    @Test
+    void klipyPageUrlStaysVisibleBeforeLoad() {
+        Component message = Component.literal("look " + KLIPY_URL);
+        List<ResourceMatch> found = ResourceDetector.findResources(message);
+        assertEquals(1, found.size());
+        assertEquals(ResourceKind.PAGE, found.get(0).kind());
+        assertTrue(ResourceDetector.stripRanges(found, message.getString()).isEmpty());
+    }
+
+    @Test
+    void hideUrl_removesUrl() {
+        Component message = Component.literal("prefix " + KLIPY_URL);
+        Component result = ResourceDetector.hideUrl(message, KLIPY_URL);
+        assertEquals("prefix ", result.getString());
+    }
+
+    @Test
+    void hideUrl_noMatchReturnsSame() {
+        Component message = Component.literal("prefix https://klipy.com/gifs/hello-1234X");
+        assertSame(message, ResourceDetector.hideUrl(message, KLIPY_URL));
+    }
+
+    @Test
+    void hideUrl_preservesStyledSibling() {
+        Style playerStyle = Style.EMPTY.withColor(ChatFormatting.RED).withInsertion("Player");
+        Component sibling = Component.literal("<Player> ").setStyle(playerStyle);
+        Component message = Component.literal("").append(sibling).append(Component.literal(KLIPY_URL));
+
+        Component result = ResourceDetector.hideUrl(message, KLIPY_URL);
+
+        assertFalse(result.getString().contains(KLIPY_URL));
+        Component kept = findByText(result, "<Player> ");
+        assertNotNull(kept, "styled sibling must survive");
+        assertEquals(playerStyle, kept.getStyle());
+    }
+
+    @Test
+    void hideUrl_translatableFixture() {
+        Component message = Component.translatable("chat.type.text",
+                Component.literal("Player"), Component.literal("msg " + KLIPY_URL));
+
+        Component result = ResourceDetector.hideUrl(message, KLIPY_URL);
+
+        assertFalse(result.getString().contains(KLIPY_URL));
+        TranslatableContents contents = null;
+        for (Component sibling : result.getSiblings()) {
+            if (sibling.getContents() instanceof TranslatableContents translatable) {
+                contents = translatable;
+            }
+        }
+        assertNotNull(contents, "translatable component must survive");
+        assertEquals("chat.type.text", contents.getKey());
     }
 }
