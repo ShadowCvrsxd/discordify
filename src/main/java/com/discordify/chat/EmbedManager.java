@@ -55,6 +55,8 @@ public final class EmbedManager {
         final int addedTime;
         final byte[] bytes;
         final ResourceKind kind;
+        final ResourceKind originalKind;
+        final String originalUrl;
         final String prefix;
         final int urlWidth;
         GifPlayer player;
@@ -63,10 +65,13 @@ public final class EmbedManager {
         long lastDrawnTick = Long.MIN_VALUE;
         int prefixWidth = -1;
 
-        Embed(int addedTime, byte[] bytes, ResourceKind kind, String prefix, int urlWidth) {
+        Embed(int addedTime, byte[] bytes, ResourceKind kind, ResourceKind originalKind,
+              String originalUrl, String prefix, int urlWidth) {
             this.addedTime = addedTime;
             this.bytes = bytes;
             this.kind = kind;
+            this.originalKind = originalKind;
+            this.originalUrl = originalUrl;
             this.prefix = prefix;
             this.urlWidth = urlWidth;
         }
@@ -119,8 +124,8 @@ public final class EmbedManager {
                         }
                         try {
                             if (resolved != null && resolved.bytes() != null) {
-                                activeEmbeds.put(id,
-                                        new Embed(addedTime, resolved.bytes(), resolved.kind(), prefix, urlWidth));
+                                activeEmbeds.put(id, new Embed(addedTime, resolved.bytes(), resolved.kind(),
+                                        match.kind(), match.originalUrl(), prefix, urlWidth));
                                 if (match.kind() == ResourceKind.PAGE
                                         && ResourceDetector.klipySlug(match.originalUrl()) != null) {
                                     queueHide(addedTime, match.originalUrl());
@@ -310,6 +315,11 @@ public final class EmbedManager {
                     try {
                         embed.player = new GifPlayer(frames);
                         embed.lastDrawnTick = frameTick;
+                        // ponytail: klipy PAGE is hidden in onMessage; other media is hidden only once
+                        // its GIF renders, so the URL stays visible throughout decoding.
+                        if (embed.originalKind != ResourceKind.PAGE) {
+                            queueHide(embed.addedTime, embed.originalUrl);
+                        }
                     } catch (RuntimeException e) {
                         embed.decodeFailed = true;
                         LOGGER.debug("Discordify: could not create image player: {}", e.toString());

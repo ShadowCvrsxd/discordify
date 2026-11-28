@@ -2,6 +2,7 @@ package com.discordify.mixin;
 
 import com.discordify.chat.EmbedManager;
 import com.discordify.chat.ResourceDetector;
+import com.discordify.chat.ResourceKind;
 import com.discordify.chat.ResourceMatch;
 import java.util.List;
 import java.util.ListIterator;
@@ -62,7 +63,12 @@ public abstract class ChatComponentMixin {
         List<ResourceMatch> matches = ResourceDetector.findResources(message);
         if (matches.isEmpty()) return message;
         String full = message.getString();
-        List<int[]> ranges = ResourceDetector.stripRanges(matches, full);
+        // ponytail: only PAGE matches feed the immediate strip; media URLs must survive into
+        // pendingMatches until their GIF renders (EmbedManager then queues the hide).
+        List<ResourceMatch> pageMatches = matches.stream()
+                .filter(match -> match.kind() == ResourceKind.PAGE)
+                .toList();
+        List<int[]> ranges = ResourceDetector.stripRanges(pageMatches, full);
         // ponytail: addMessage(Component) delegates to the signed overload, so this runs twice.
         // Pass two must not overwrite pass one's richer GIF+PAGE list with a PAGE-only list, but a
         // PAGE-only message still needs its list forwarded so the downloader can resolve share links.
