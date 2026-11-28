@@ -107,8 +107,6 @@ class ResourceDownloaderTest {
         assertEquals(ResourceKind.IMAGE, ResourceDownloader.sniffKind(JPEG));
         assertEquals(ResourceKind.IMAGE, ResourceDownloader.sniffKind(WEBP));
         assertNull(ResourceDownloader.sniffKind(HTML));
-        assertTrue(ResourceDownloader.isHtml("text/html; charset=utf-8"));
-        assertFalse(ResourceDownloader.isHtml("image/gif"));
     }
 
     @Test

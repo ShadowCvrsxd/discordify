@@ -1,6 +1,5 @@
 package com.discordify.gif;
 
-import com.discordify.chat.PageUnfurl;
 import com.discordify.chat.ResourceDetector;
 import com.discordify.chat.ResourceKind;
 import com.discordify.chat.ResourceMatch;
@@ -222,14 +221,19 @@ public final class ResourceDownloader {
     private Resolved resolve(ResourceMatch match, Path gameDir) {
         long deadline = System.nanoTime() + FETCH_DEADLINE_NANOS;
         try {
+            if (!shouldResolve(match)) return null;
             return resolveCandidate(match.mediaUrl(), gameDir, deadline);
         } catch (IOException e) {
-            LOGGER.debug("Discordify: failed to embed resource {}: {}", safeUrl(match.mediaUrl()), e.toString());
+            LOGGER.warn("Discordify: failed to embed resource {}: {}", safeUrl(match.mediaUrl()), e.toString());
             return null;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return null;
         }
+    }
+
+    static boolean shouldResolve(ResourceMatch match) {
+        return match.kind() != ResourceKind.PAGE || ResourceDetector.klipySlug(match.mediaUrl()) != null;
     }
 
     private Resolved resolveCandidate(String url, Path gameDir, long deadline) throws IOException, InterruptedException {
@@ -251,34 +255,7 @@ public final class ResourceDownloader {
             markFetched(url);
             return new Resolved(bytes, kind, extensionFor(bytes));
         }
-        if (!isHtml(response.contentType())) return null;
-
-        String html = new String(bytes, StandardCharsets.UTF_8);
-        String mediaUrl = PageUnfurl.imageTag(html, response.finalUrl()).orElse(null);
-        if (mediaUrl == null) {
-            String oEmbed = PageUnfurl.oEmbedLink(html)
-                    .flatMap(ref -> PageUnfurl.resolve(response.finalUrl(), ref))
-                    .orElse(null);
-            if (oEmbed != null) {
-                SafeResponse oe = safeFetch(oEmbed, deadline, MAX_IMAGE_BYTES);
-                if (oe.body() == null) return null;
-                String type = oe.contentType() == null ? "" : oe.contentType().toLowerCase(Locale.ROOT);
-                if (type.contains("json")) {
-                    mediaUrl = PageUnfurl.thumbnail(new String(oe.body(), StandardCharsets.UTF_8), oe.finalUrl())
-                            .orElse(null);
-                }
-            }
-        }
-        // ponytail: no usable og:image / oEmbed -> fail open, the caller leaves the original link as text.
-        if (mediaUrl == null) return null;
-        SafeResponse media = safeFetch(mediaUrl, deadline, MAX_IMAGE_BYTES);
-        if (media.body() == null) return null;
-        ResourceKind mediaKind = sniffKind(media.body());
-        if (mediaKind == null) return null;
-        validateResponse(media.status(), media.contentType(), mediaKind);
-        writeCache(gameDir, mediaUrl, extensionFor(media.body()), media.body());
-        markFetched(url);
-        return new Resolved(media.body(), mediaKind, extensionFor(media.body()));
+        return null;
     }
 
     private Resolved resolveKlipyShare(String shareUrl, String slug, Path gameDir, long deadline)
@@ -287,17 +264,17 @@ public final class ResourceDownloader {
         try {
             SafeResponse api = safeFetch(apiUrl, deadline, MAX_TEXT_BYTES);
             if (api.body() == null || api.status() < 200 || api.status() >= 300) {
-                LOGGER.debug("Discordify: klipy items API status {} for {}", api.status(), safeUrl(shareUrl));
+                LOGGER.warn("Discordify: klipy items API status {} for {}", api.status(), safeUrl(shareUrl));
                 return null;
             }
             String mediaUrl = klipyMediaUrl(new String(api.body(), StandardCharsets.UTF_8));
             if (mediaUrl == null) {
-                LOGGER.debug("Discordify: no klipy media URL for {}", safeUrl(shareUrl));
+                LOGGER.warn("Discordify: no klipy media URL for {}", safeUrl(shareUrl));
                 return null;
             }
             return resolveCandidate(mediaUrl, gameDir, deadline);
         } catch (IOException | RuntimeException e) {
-            LOGGER.debug("Discordify: failed to resolve klipy share {}: {}", safeUrl(shareUrl), e.toString());
+            LOGGER.warn("Discordify: failed to resolve klipy share {}: {}", safeUrl(shareUrl), e.toString());
             return null;
         }
     }
@@ -496,12 +473,6 @@ public final class ResourceDownloader {
                 }
             }
         }
-    }
-
-    static boolean isHtml(String contentType) {
-        if (contentType == null) return false;
-        String type = contentType.toLowerCase(Locale.ROOT);
-        return type.contains("text/html") || type.contains("application/xhtml+xml");
     }
 
     static byte[] readBounded(InputStream in) throws IOException {
