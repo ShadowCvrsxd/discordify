@@ -1,5 +1,6 @@
 package com.discordify;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -11,6 +12,8 @@ import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 
 class ReleaseConfigTest {
+    private static final String EXPECTED_VERSION = "0.1.0-alpha.2";
+
     @Test
     void workflowPublishesVersionedJarToGithubReleases() throws IOException {
         String yaml = Files.readString(Path.of(".github", "workflows", "build.yml"), StandardCharsets.UTF_8);
@@ -28,5 +31,30 @@ class ReleaseConfigTest {
         assertTrue(yaml.contains("tag_name: v" + v + "-mc1.21.11"));
         assertTrue(yaml.contains("github.ref == 'refs/heads/master'"), "release must be master-only");
         assertTrue(yaml.contains("contents: write"), "release needs write permission");
+    }
+
+    @Test
+    void fabricModVersionMatchesGradleVersion() throws IOException {
+        String build = Files.readString(Path.of("build.gradle"), StandardCharsets.UTF_8);
+        String modJson = Files.readString(Path.of("src", "main", "resources", "fabric.mod.json"), StandardCharsets.UTF_8);
+
+        Matcher gradleVersion = Pattern.compile("version\\s*=\\s*\"([^\"]+)\"").matcher(build);
+        assertTrue(gradleVersion.find(), "missing version in build.gradle");
+        Matcher modVersion = Pattern.compile("\"version\"\\s*:\\s*\"([^\"]+)\"").matcher(modJson);
+        assertTrue(modVersion.find(), "missing version in fabric.mod.json");
+
+        assertEquals(EXPECTED_VERSION, gradleVersion.group(1), "build.gradle must carry " + EXPECTED_VERSION);
+        assertEquals(EXPECTED_VERSION, modVersion.group(1), "fabric.mod.json must match build.gradle");
+    }
+
+    @Test
+    void readmeDocumentsCurrentVersion() throws IOException {
+        String readme = Files.readString(Path.of("README.md"), StandardCharsets.UTF_8);
+
+        // README wraps the version in backticks; tolerate both with and without them.
+        assertTrue(Pattern.compile("Current alpha: `?" + Pattern.quote(EXPECTED_VERSION) + "`?").matcher(readme).find(),
+                "README must document " + EXPECTED_VERSION + " as the current alpha");
+        assertTrue(readme.contains("discordify-" + EXPECTED_VERSION + ".jar"),
+                "README must point at the " + EXPECTED_VERSION + " jar");
     }
 }
