@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.discordify.chat.ResourceKind;
+import com.discordify.chat.ResourceMatch;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.net.InetAddress;
@@ -236,6 +237,31 @@ class ResourceDownloaderTest {
     void redactsKlipyApiUrlInLogs() {
         assertEquals("https://api.klipy.com/<redacted>", ResourceDownloader.safeUrl(
                 "https://api.klipy.com/api/v1/some-test-key/gifs/items?slugs=x"));
+    }
+
+    @Test
+    void shouldResolve_rejectsGenericPageAllowsKlipyAndMedia() {
+        String generic = "https://modrinth.com/plugin/placeholderapi";
+        ResourceMatch genericPage = new ResourceMatch(ResourceKind.PAGE, generic, generic, 0, 0);
+        String klipy = "https://klipy.com/gifs/hello-hi-662";
+        ResourceMatch klipyPage = new ResourceMatch(ResourceKind.PAGE, klipy, klipy, 0, 0);
+        String gif = "https://media.giphy.com/media/abc/giphy.gif";
+        ResourceMatch gifMedia = new ResourceMatch(ResourceKind.GIF, gif, gif, 0, 0);
+        String image = "https://example.com/a.png";
+        ResourceMatch imageMedia = new ResourceMatch(ResourceKind.IMAGE, image, image, 0, 0);
+
+        assertFalse(ResourceDownloader.shouldResolve(genericPage));
+        assertTrue(ResourceDownloader.shouldResolve(klipyPage));
+        assertTrue(ResourceDownloader.shouldResolve(gifMedia));
+        assertTrue(ResourceDownloader.shouldResolve(imageMedia));
+    }
+
+    @Test
+    void shouldResolve_rejectsPageWithBlankMediaUrl() {
+        assertFalse(ResourceDownloader.shouldResolve(
+                new ResourceMatch(ResourceKind.PAGE, null, null, 0, 0)));
+        assertFalse(ResourceDownloader.shouldResolve(
+                new ResourceMatch(ResourceKind.PAGE, "", "", 0, 0)));
     }
 
     @Test
