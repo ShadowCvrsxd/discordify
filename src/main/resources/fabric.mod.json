@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "discordify",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "name": "Discordify",
   "description": "Displays GIF links inline in Minecraft chat.",
   "authors": ["ShadowCvrsxd"],

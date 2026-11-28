@@ -94,6 +94,17 @@ class ChatCompatibilityTest {
         assertFalse(Files.readString(Path.of(MIXIN_CONFIG)).contains("mixinPriority"));
     }
 
+    static boolean neighborSlotGuard(String source) {
+        return source.contains("backgroundSpanRows(slot - 1)");
+    }
+
+    @Test
+    void backgroundFillYNeighborArgumentUsesPreviousSlot() throws IOException {
+        String src = Files.readString(Path.of(MIXIN_SOURCE));
+        assertTrue(neighborSlotGuard(src));
+        assertFalse(neighborSlotGuard(src.replace("backgroundSpanRows(slot - 1)", "")));
+    }
+
     private static String validSource() {
         return "@ModifyArgs(method = \"method_75802\")\n"
                 + "@Mixin(value = ChatComponent.class, priority = 1001)\n"

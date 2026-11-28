@@ -16,6 +16,8 @@ import org.junit.jupiter.api.Test;
 class ResourceContractTest {
     private static final List<String> FORBIDDEN = List.of(
             "HudRenderCallback", "GuiGraphicsExtractor", "ResourceLocation");
+    private static final List<String> FORBIDDEN_UNFURL = List.of(
+            "PageUnfurl", "isHtml", "og:image", "thumbnailUrl", "Jsoup");
 
     @Test
     void fabricModDeclaresClientModWithMixinConfig() throws IOException {
@@ -47,6 +49,22 @@ class ResourceContractTest {
             for (Path file : paths.filter(p -> p.toString().endsWith(".java")).toList()) {
                 String text = Files.readString(file, StandardCharsets.UTF_8);
                 for (String token : FORBIDDEN) {
+                    if (text.contains(token)) violations.add(file + " contains " + token);
+                }
+            }
+        }
+        assertTrue(violations.isEmpty(), String.join("\n", violations));
+    }
+
+    @Test
+    void noHtmlUnfurlPathInMainSources() throws IOException {
+        Path root = Path.of("src", "main", "java");
+        assertTrue(Files.isDirectory(root), "missing source root: " + root.toAbsolutePath());
+        List<String> violations = new ArrayList<>();
+        try (Stream<Path> paths = Files.walk(root)) {
+            for (Path file : paths.filter(p -> p.toString().endsWith(".java")).toList()) {
+                String text = Files.readString(file, StandardCharsets.UTF_8);
+                for (String token : FORBIDDEN_UNFURL) {
                     if (text.contains(token)) violations.add(file + " contains " + token);
                 }
             }

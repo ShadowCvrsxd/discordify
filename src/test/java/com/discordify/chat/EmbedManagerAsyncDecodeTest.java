@@ -30,4 +30,19 @@ class EmbedManagerAsyncDecodeTest {
         assertTrue(src.substring(prepare, src.indexOf("public void draw(")).contains("ensureDecoding("),
                 "decode must be triggered from prepare() only");
     }
+
+    // ponytail: source guard — the async branch needs a live CompletableFuture, so assert the order textually.
+    static boolean queueHideAfterResolvedBytes(String src) {
+        int resolved = src.indexOf("resolved != null && resolved.bytes() != null");
+        int hide = src.indexOf("queueHide(");
+        return resolved >= 0 && hide >= 0 && resolved < hide;
+    }
+
+    @Test
+    void queueHideOnlyAfterResolvedBytes() throws IOException {
+        String src = Files.readString(SOURCE, StandardCharsets.UTF_8);
+        assertTrue(queueHideAfterResolvedBytes(src));
+        assertFalse(queueHideAfterResolvedBytes(
+                src.replace("resolved != null && resolved.bytes() != null", "")));
+    }
 }

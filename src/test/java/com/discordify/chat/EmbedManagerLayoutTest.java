@@ -160,6 +160,11 @@ class EmbedManagerLayoutTest {
         assertArrayEquals(new int[] {70, 110}, EmbedManager.backgroundFillY(100, 10, 0, 2, 3, false));
     }
 
+    @Test
+    void backgroundFillY_pullsBottomUpOneRowWhenNeighborBelow() {
+        assertArrayEquals(new int[] {70, 100}, EmbedManager.backgroundFillY(100, 10, 0, 2, 3, true));
+    }
+
     // ponytail: pure helper can't see prepare()'s Minecraft bootstrap, so assert the wiring textually;
     // fails if either the publish in shiftBackground or the override in prepare() is removed.
     static boolean moddedBottomWired(String mixinSource, String managerSource) {
@@ -198,5 +203,16 @@ class EmbedManagerLayoutTest {
         String manager = Files.readString(Path.of("src/main/java/com/discordify/chat/EmbedManager.java"));
         assertTrue(reserveClampWired(manager));
         assertFalse(reserveClampWired(manager.replace("reserveForViewport(", "")));
+    }
+
+    static boolean chatLineReserveWired(String lineSource) {
+        return lineSource.contains("reserveEmbedRows");
+    }
+
+    @Test
+    void chatLineReserveRowsIsWired() throws IOException {
+        String line = Files.readString(Path.of("src/main/java/com/discordify/mixin/ChatLineMixin.java"));
+        assertTrue(chatLineReserveWired(line));
+        assertFalse(chatLineReserveWired(line.replace("reserveEmbedRows", "")));
     }
 }

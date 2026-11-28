@@ -2,7 +2,7 @@
 
 Inline GIF/image embeds in Minecraft chat, Discord-style. Client-side Fabric mod for Minecraft 1.21.11.
 
-Current alpha: `0.1.0-alpha.1`. This is a SemVer pre-release; breaking changes are possible between alpha versions.
+Current alpha: `0.1.0-alpha.2`. This is a SemVer pre-release; breaking changes are possible between alpha versions.
 
 ## Install
 
@@ -11,7 +11,7 @@ Current alpha: `0.1.0-alpha.1`. This is a SemVer pre-release; breaking changes a
 - Fabric API
 - Java 21
 
-Drop `discordify-0.1.0-alpha.1.jar` into your `mods/` folder. No server-side install is needed; the mod runs entirely on the client.
+Drop `discordify-0.1.0-alpha.2.jar` into your `mods/` folder. No server-side install is needed; the mod runs entirely on the client.
 
 ## Features
 

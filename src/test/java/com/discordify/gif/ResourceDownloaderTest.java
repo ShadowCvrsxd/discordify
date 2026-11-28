@@ -237,6 +237,39 @@ class ResourceDownloaderTest {
                 "https://api.klipy.com/api/v1/some-test-key/gifs/items?slugs=x"));
     }
 
+    private static final Path SOURCE =
+            Path.of("src", "main", "java", "com", "discordify", "gif", "ResourceDownloader.java");
+
+    // ponytail: source guard — failure paths need live HTTP, so assert WARN + redaction textually.
+    static boolean klipyFailureLogsAreWarnAndRedacted(String src) {
+        String[] literals = {
+            "Discordify: failed to embed resource {}: {}",
+            "Discordify: klipy items API status {} for {}",
+            "Discordify: no klipy media URL for {}",
+            "Discordify: failed to resolve klipy share {}: {}"
+        };
+        for (String line : src.split("\\R")) {
+            if (line.contains("KLIPY_KEY") && line.contains("LOGGER.")) return false;
+            for (String literal : literals) {
+                if (line.contains(literal)
+                        && (!line.contains("LOGGER.warn(") || !line.contains("safeUrl("))) return false;
+            }
+        }
+        for (String literal : literals) {
+            if (!src.contains(literal)) return false;
+        }
+        return true;
+    }
+
+    @Test
+    void klipyFailureLogsAreWarnAndRedacted() throws IOException {
+        String src = Files.readString(SOURCE);
+        assertTrue(klipyFailureLogsAreWarnAndRedacted(src));
+        assertFalse(klipyFailureLogsAreWarnAndRedacted(src.replace(
+                "LOGGER.warn(\"Discordify: no klipy media URL for {}\"",
+                "LOGGER.debug(\"Discordify: no klipy media URL for {}\"")));
+    }
+
     @Test
     void shouldResolve_rejectsGenericPageAllowsKlipyAndMedia() {
         String generic = "https://modrinth.com/plugin/placeholderapi";

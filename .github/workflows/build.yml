@@ -29,9 +29,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          tag_name: v0.1.0-alpha.1-mc1.21.11
-          name: v0.1.0-alpha.1-mc1.21.11
-          files: build/libs/discordify-0.1.0-alpha.1.jar
+          tag_name: v0.1.0-alpha.2-mc1.21.11
+          name: v0.1.0-alpha.2-mc1.21.11
+          files: build/libs/discordify-0.1.0-alpha.2.jar
           generate_release_notes: true
       - uses: actions/upload-artifact@v4
         if: failure()
