@@ -100,12 +100,12 @@ class EmbedManagerLayoutTest {
         assertEquals(3, reserve);
 
         int gifTop = EmbedManager.embedTopY(slot, shift[slot], 0, lineHeight, chatBottom);
-        // ponytail: current draw height is the full reserve; Task 5 swaps in gifDrawRows(reserve, true).
-        int gifBottom = gifTop + reserve * lineHeight;
+        int gifBottom = gifTop + EmbedManager.gifDrawRows(reserve, true) * lineHeight;
         int[] strip = EmbedManager.backgroundFillY(chatBottom, lineHeight, slot, shift[slot], reserve,
                 EmbedManager.backgroundSpan(shift, slot - 1) > 0);
 
         assertEquals(330, gifTop);
+        assertEquals(1, EmbedManager.gifDrawRows(1, true));
         assertArrayEquals(new int[] {320, 350}, strip);
         assertEquals(strip[1], gifBottom,
                 "upper GIF [" + gifTop + "," + gifBottom + "] spills past strip ["

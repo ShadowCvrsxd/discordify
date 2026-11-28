@@ -188,6 +188,10 @@ public final class EmbedManager {
         return new int[]{y1, y2};
     }
 
+    static int gifDrawRows(int reserve, boolean neighborBelow) {
+        return Math.max(1, reserve - (neighborBelow ? 1 : 0));
+    }
+
     public static int reserveForViewport(int reserve, int slot, int linesPerPage, int earlierReserved) {
         int available = linesPerPage - 1 - slot - earlierReserved;
         // ponytail: < 1 (not < 2) — the committed test defines available==1 as a valid one-row reserve.
@@ -455,7 +459,11 @@ public final class EmbedManager {
                 int gifTopLocal = embedTopY(p.slot(), cumulativeShift[p.slot()], before,
                         p.lineHeight(), p.chatBottomLocal());
                 int gifY = (int) Math.round(gifTopLocal * p.scale());
-                int gifH = Math.max(1, (int) Math.round(p.reserve() * p.lineHeight() * p.scale()));
+                // ponytail: mirror shiftBackground's neighborBelow so the upper GIF stays inside its
+                // background strip instead of spilling onto the chat row below.
+                boolean neighborBelow = backgroundSpan(cumulativeShift, p.slot() - 1) > 0;
+                int gifH = Math.max(1, (int) Math.round(
+                        gifDrawRows(p.reserve(), neighborBelow) * p.lineHeight() * p.scale()));
                 int gifX = gifLeftX(p.lineLocalX(), p.scale(), true);
                 int availWGui = Math.max(1, (int) Math.round(p.availWScreen() / p.guiScale()));
                 int gifW = drawWidth(p.player().getFrameWidth(), p.player().getFrameHeight(), gifH, availWGui);
