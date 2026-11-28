@@ -91,6 +91,28 @@ class EmbedManagerLayoutTest {
     }
 
     @Test
+    void twoGifSlotsKeepTextGap() {
+        int lineHeight = 10;
+        int chatBottom = 400;
+        int[] shift = EmbedManager.buildCumulativeShift(3, Map.of(0, 3, 1, 3));
+        int slot = 1;
+        int reserve = EmbedManager.backgroundSpan(shift, slot);
+        assertEquals(3, reserve);
+
+        int gifTop = EmbedManager.embedTopY(slot, shift[slot], 0, lineHeight, chatBottom);
+        // ponytail: current draw height is the full reserve; Task 5 swaps in gifDrawRows(reserve, true).
+        int gifBottom = gifTop + reserve * lineHeight;
+        int[] strip = EmbedManager.backgroundFillY(chatBottom, lineHeight, slot, shift[slot], reserve,
+                EmbedManager.backgroundSpan(shift, slot - 1) > 0);
+
+        assertEquals(330, gifTop);
+        assertArrayEquals(new int[] {320, 350}, strip);
+        assertEquals(strip[1], gifBottom,
+                "upper GIF [" + gifTop + "," + gifBottom + "] spills past strip ["
+                        + strip[0] + "," + strip[1] + "] onto chat text");
+    }
+
+    @Test
     void opacityUsesCapturedVanillaValueNotTicks() {
         assertEquals(1.0F, EmbedManager.lineOpacity(1.0F));
         assertEquals(0.5F, EmbedManager.lineOpacity(0.5F));

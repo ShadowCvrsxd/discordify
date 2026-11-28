@@ -1,5 +1,6 @@
 package com.discordify.chat;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -44,5 +45,68 @@ class EmbedManagerAsyncDecodeTest {
         assertTrue(queueHideAfterResolvedBytes(src));
         assertFalse(queueHideAfterResolvedBytes(
                 src.replace("resolved != null && resolved.bytes() != null", "")));
+    }
+
+    // ponytail: source guards — onMessage/ensureDecoding need Minecraft bootstrap, so pin the
+    // hide wiring textually; a vacuous "no hide on failure" must not pass before Task 4 lands.
+    static int queueHideCount(String src, int from, int to) {
+        int count = 0;
+        for (int at = src.indexOf("queueHide(", from); at >= 0 && at < to;
+             at = src.indexOf("queueHide(", at + 1)) {
+            count++;
+        }
+        return count;
+    }
+
+    static int decodeSuccessHideIndex(String src) {
+        int decode = src.indexOf("private void ensureDecoding");
+        int end = src.indexOf("public void prepare", decode);
+        int player = src.indexOf("new GifPlayer(", decode);
+        int hide = src.indexOf("queueHide(", decode);
+        if (decode < 0 || end < 0 || player < 0 || hide < 0 || hide >= end) return -1;
+        int callEnd = src.indexOf(");", hide);
+        if (callEnd < 0 || callEnd > end) return -1;
+        return player < hide && src.substring(hide, callEnd).contains("originalUrl") ? hide : -1;
+    }
+
+    @Test
+    void queueHideForGifOnlyAfterDecodeSuccess() throws IOException {
+        String src = Files.readString(SOURCE, StandardCharsets.UTF_8);
+        int onMessage = src.indexOf("public void onMessage");
+        int onMessageEnd = src.indexOf("public void queueHide", onMessage);
+        int decode = src.indexOf("private void ensureDecoding");
+        int decodeEnd = src.indexOf("public void prepare", decode);
+
+        // bytes resolving is not enough for non-PAGE media: onMessage may only hide the klipy PAGE
+        int resolved = src.indexOf("resolved != null && resolved.bytes() != null", onMessage);
+        int pageGuard = src.indexOf("match.kind() == ResourceKind.PAGE", resolved);
+        int earlyHide = src.indexOf("queueHide(", resolved);
+        assertTrue(pageGuard >= 0 && earlyHide > pageGuard && earlyHide < onMessageEnd,
+                "onMessage must only queue the klipy PAGE hide");
+
+        // exactly one media hide, after GifPlayer creation, keyed on the original URL
+        assertEquals(1, queueHideCount(src, decode, decodeEnd));
+        assertTrue(decodeSuccessHideIndex(src) >= 0,
+                "GIF/IMAGE hide must be queued after decode success with its originalUrl");
+    }
+
+    @Test
+    void gifFailureLeavesUrlVisible() throws IOException {
+        String src = Files.readString(SOURCE, StandardCharsets.UTF_8);
+        int decode = src.indexOf("private void ensureDecoding");
+        int decodeEnd = src.indexOf("public void prepare", decode);
+        int failure = src.indexOf("if (error != null", decode);
+        int player = src.indexOf("new GifPlayer(", decode);
+        int exceptionally = src.indexOf(".exceptionally(", src.indexOf("public void onMessage"));
+        int exceptionallyEnd = src.indexOf("public void queueHide", exceptionally);
+
+        // download failure and decode failure emit no hide at all
+        assertEquals(0, queueHideCount(src, exceptionally, exceptionallyEnd));
+        assertTrue(failure >= 0 && player > failure);
+        assertEquals(0, queueHideCount(src, failure, player));
+
+        // the hide still exists on the success continuation, so the URL stays visible only on failure
+        assertEquals(1, queueHideCount(src, decode, decodeEnd));
+        assertTrue(decodeSuccessHideIndex(src) >= 0);
     }
 }

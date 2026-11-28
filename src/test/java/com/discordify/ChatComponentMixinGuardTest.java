@@ -1,12 +1,18 @@
 package com.discordify;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.discordify.chat.EmbedManager;
+import com.discordify.chat.ResourceDetector;
+import com.discordify.chat.ResourceKind;
+import com.discordify.chat.ResourceMatch;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import net.minecraft.network.chat.Component;
 import org.junit.jupiter.api.Test;
 
 class ChatComponentMixinGuardTest {
@@ -32,5 +38,34 @@ class ChatComponentMixinGuardTest {
         String src = Files.readString(MIXIN_SOURCE);
         assertTrue(guard(src));
         assertFalse(guard(src.replace("m.signature(), m.tag()", "null, null")));
+    }
+
+    // ponytail: pure guard — stripResources needs Minecraft's Font, so assert the wiring textually;
+    // fails until the immediate ranges are derived from PAGE-only matches.
+    static boolean initialStripKeepsMedia(String src) {
+        int start = src.indexOf("private Component stripResources(Component message)");
+        int end = src.indexOf("@Inject(method = \"addMessage(Lnet/minecraft/network/chat/Component;)V\"", start);
+        if (start < 0 || end < 0) return false;
+        String body = src.substring(start, end);
+        return body.contains("pendingMatches = matches;")
+                && body.contains("ResourceKind.PAGE")
+                && !body.contains("stripRanges(matches, full)");
+    }
+
+    @Test
+    void gifUrlSurvivesInitialStrip() throws IOException {
+        String src = Files.readString(MIXIN_SOURCE);
+        assertTrue(initialStripKeepsMedia(src),
+                "non-PAGE media must stay out of the immediate strip ranges while pendingMatches keeps them");
+
+        // component-level: the full list the mixin retains really does contain both media URLs
+        String gif = "https://media.giphy.com/media/d5gH2bQk9m/giphy.gif";
+        String image = "https://i.example.com/pic.png";
+        Component message = Component.literal("see " + gif + " and " + image);
+        List<ResourceMatch> matches = ResourceDetector.findResources(message);
+        assertEquals(2, matches.size());
+        assertEquals(1, matches.stream().filter(m -> m.kind() == ResourceKind.GIF).count());
+        assertEquals(1, matches.stream().filter(m -> m.kind() == ResourceKind.IMAGE).count());
+        assertEquals(2, ResourceDetector.stripRanges(matches, message.getString()).size());
     }
 }
